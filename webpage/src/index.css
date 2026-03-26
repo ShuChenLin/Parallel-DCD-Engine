@@ -1,0 +1,29 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  html {
+    font-family: 'EB Garamond', Georgia, serif;
+    scroll-behavior: smooth;
+  }
+  body {
+    background: #fff;
+    color: #222;
+  }
+  h1 { font-size: 1.9rem; font-weight: 500; line-height: 1.25; }
+  h2 { font-size: 1.1rem; font-weight: 600; letter-spacing: .01em; margin-bottom: .35rem; margin-top: 2rem; color: #111; }
+  h3 { font-size: 1rem; font-weight: 600; color: #333; margin-top: 1rem; margin-bottom: .2rem; }
+  p  { font-size: 1.05rem; line-height: 1.75; color: #444; margin-bottom: .75rem; text-align: justify; }
+  ul { font-size: 1.05rem; line-height: 1.75; color: #444; padding-left: 1.5rem; margin-bottom: .75rem; text-align: justify; list-style-type: disc; }
+  ol { font-size: 1.05rem; line-height: 1.75; color: #444; padding-left: 1.5rem; margin-bottom: .75rem; text-align: justify; list-style-type: decimal; }
+  li { margin-bottom: .2rem; }
+  a  { color: #1a56a0; text-decoration: none; }
+  a:hover { text-decoration: underline; }
+  code { font-family: 'JetBrains Mono', monospace; font-size: .8rem; background: #f4f4f4; padding: .1em .35em; border-radius: 3px; }
+  hr { border: none; border-top: 1px solid #e5e5e5; margin: 1.75rem 0; }
+  table { width: 100%; border-collapse: collapse; font-size: 1rem; margin: .75rem 0 1rem; }
+  th { text-align: left; font-weight: 600; color: #111; border-bottom: 2px solid #ddd; padding: .4rem .6rem; }
+  td { padding: .4rem .6rem; border-bottom: 1px solid #eee; color: #444; vertical-align: top; }
+  em { color: #555; }
+}
