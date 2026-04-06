@@ -49,4 +49,31 @@ struct Shape {
         for (auto& v : s.vertices) v = v * (scale * 0.5f);
         return s;
     }
+
+    // Generate a regular octahedron: 6 vertices at ±scale on each axis
+    static Shape make_octahedron(float scale = 1.0f) {
+        Shape s;
+        s.vertices.push_back({ scale,  0,      0});
+        s.vertices.push_back({-scale,  0,      0});
+        s.vertices.push_back({ 0,      scale,  0});
+        s.vertices.push_back({ 0,     -scale,  0});
+        s.vertices.push_back({ 0,      0,      scale});
+        s.vertices.push_back({ 0,      0,     -scale});
+        return s;
+    }
+
+    // Generate a regular icosahedron: 12 vertices, visually approximates a sphere
+    static Shape make_icosphere(float scale = 1.0f) {
+        const float phi = (1.0f + std::sqrt(5.0f)) / 2.0f;
+        const float norm = std::sqrt(1.0f + phi * phi);
+        const float a = scale / norm;
+        const float b = scale * phi / norm;
+        Shape s;
+        s.vertices = {
+            { 0,  a,  b}, { 0, -a,  b}, { 0,  a, -b}, { 0, -a, -b},
+            { a,  b,  0}, {-a,  b,  0}, { a, -b,  0}, {-a, -b,  0},
+            { b,  0,  a}, {-b,  0,  a}, { b,  0, -a}, {-b,  0, -a},
+        };
+        return s;
+    }
 };

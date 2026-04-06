@@ -22,7 +22,11 @@ void Scene::init(int n, Scenario scenario, float world_size) {
     switch (scenario) {
         case Scenario::RANDOM_WALK: {
             for (int i = 0; i < n; i++) {
-                bodies[i].shape = Shape::make_cube(obj_size * 0.5f);
+                int kind = i % 4;
+                if      (kind == 0) bodies[i].shape = Shape::make_cube(obj_size * 0.5f);
+                else if (kind == 1) bodies[i].shape = Shape::make_tetrahedron(obj_size);
+                else if (kind == 2) bodies[i].shape = Shape::make_octahedron(obj_size * 0.5f);
+                else                bodies[i].shape = Shape::make_icosphere(obj_size * 0.5f);
                 bodies[i].position = {
                     rand_float(margin, world_size - margin),
                     rand_float(margin, world_size - margin),

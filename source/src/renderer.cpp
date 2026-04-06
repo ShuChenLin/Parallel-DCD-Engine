@@ -95,6 +95,83 @@ static void draw_wire_box(const AABB& box, float r, float g, float b, float a) {
     glEnd();
 }
 
+static void draw_tetrahedron_at(const Body& body, float r, float g, float b, float a) {
+    // 4 vertices, 4 triangular faces
+    static const int faces[4][3] = {{0,2,1},{0,1,3},{0,3,2},{1,2,3}};
+    const auto& verts = body.shape.vertices;
+    glColor4f(r, g, b, a);
+    glBegin(GL_TRIANGLES);
+    for (auto& f : faces) {
+        Vec3 v0 = verts[f[0]] + body.position;
+        Vec3 v1 = verts[f[1]] + body.position;
+        Vec3 v2 = verts[f[2]] + body.position;
+        Vec3 n = (v1 - v0).cross(v2 - v0).normalized();
+        glNormal3f(n.x, n.y, n.z);
+        glVertex3f(v0.x, v0.y, v0.z);
+        glVertex3f(v1.x, v1.y, v1.z);
+        glVertex3f(v2.x, v2.y, v2.z);
+    }
+    glEnd();
+}
+
+static void draw_octahedron_at(const Body& body, float r, float g, float b, float a) {
+    // 6 vertices layout: 0=(+s,0,0) 1=(-s,0,0) 2=(0,+s,0) 3=(0,-s,0) 4=(0,0,+s) 5=(0,0,-s)
+    // 8 triangular faces
+    static const int faces[8][3] = {
+        {2,0,4},{2,4,1},{2,1,5},{2,5,0},  // y>0 hemisphere
+        {3,4,0},{3,1,4},{3,5,1},{3,0,5},  // y<0 hemisphere
+    };
+    const auto& verts = body.shape.vertices;
+    glColor4f(r, g, b, a);
+    glBegin(GL_TRIANGLES);
+    for (auto& f : faces) {
+        Vec3 v0 = verts[f[0]] + body.position;
+        Vec3 v1 = verts[f[1]] + body.position;
+        Vec3 v2 = verts[f[2]] + body.position;
+        Vec3 n = (v1 - v0).cross(v2 - v0).normalized();
+        glNormal3f(n.x, n.y, n.z);
+        glVertex3f(v0.x, v0.y, v0.z);
+        glVertex3f(v1.x, v1.y, v1.z);
+        glVertex3f(v2.x, v2.y, v2.z);
+    }
+    glEnd();
+}
+
+static void draw_icosphere_at(const Body& body, float r, float g, float b, float a) {
+    static const int faces[20][3] = {
+        {0,1,8}, {0,8,4}, {0,4,5}, {0,5,9}, {0,9,1},
+        {1,6,8}, {8,6,10}, {8,10,4}, {4,10,2}, {4,2,5},
+        {5,2,11}, {5,11,9}, {9,11,7}, {9,7,1}, {1,7,6},
+        {3,6,7}, {3,10,6}, {3,2,10}, {3,11,2}, {3,7,11},
+    };
+    const auto& verts = body.shape.vertices;
+    glColor4f(r, g, b, a);
+    glBegin(GL_TRIANGLES);
+    for (auto& f : faces) {
+        Vec3 v0 = verts[f[0]] + body.position;
+        Vec3 v1 = verts[f[1]] + body.position;
+        Vec3 v2 = verts[f[2]] + body.position;
+        Vec3 n = (v1 - v0).cross(v2 - v0).normalized();
+        glNormal3f(n.x, n.y, n.z);
+        glVertex3f(v0.x, v0.y, v0.z);
+        glVertex3f(v1.x, v1.y, v1.z);
+        glVertex3f(v2.x, v2.y, v2.z);
+    }
+    glEnd();
+}
+
+static void draw_body_at(const Body& body, float r, float g, float b, float a) {
+    int nv = (int)body.shape.vertices.size();
+    if (nv == 4)
+        draw_tetrahedron_at(body, r, g, b, a);
+    else if (nv == 6)
+        draw_octahedron_at(body, r, g, b, a);
+    else if (nv == 12)
+        draw_icosphere_at(body, r, g, b, a);
+    else
+        draw_cube_at(body.position, 0.5f, r, g, b, a);
+}
+
 static void draw_bvh_recursive(const BVH& bvh, int idx, int depth) {
     if (idx < 0 || idx >= (int)bvh.nodes.size()) return;
     if (depth > bvh_max_depth) return;
@@ -186,23 +263,19 @@ static void draw_hud(GLFWwindow* window, double detect_ms) {
 
     // We can't easily render text in legacy OpenGL without a font library,
     // so we'll print to the terminal instead and use the title bar.
-    static int frame_count = 0;
-    frame_count++;
-    if (frame_count % 30 == 0) {
-        const char* sname = "???";
-        switch (cur_scenario) {
-            case Scenario::RANDOM_WALK: sname = "Random Walk"; break;
-            case Scenario::TWO_CLUSTER: sname = "Two Cluster"; break;
-            case Scenario::AVALANCHE:   sname = "Avalanche"; break;
-        }
-        char title[256];
-        snprintf(title, sizeof(title),
-                 "DCD Engine | %s | N=%d | collisions=%zu | detect=%.2fms | BVH:%s(d=%d) | %s",
-                 sname, num_objects, collisions.size(), detect_ms,
-                 show_bvh ? "ON" : "OFF", bvh_max_depth,
-                 paused ? "PAUSED" : "RUNNING");
-        glfwSetWindowTitle(window, title);
+    const char* sname = "???";
+    switch (cur_scenario) {
+        case Scenario::RANDOM_WALK: sname = "Random Walk"; break;
+        case Scenario::TWO_CLUSTER: sname = "Two Cluster"; break;
+        case Scenario::AVALANCHE:   sname = "Avalanche"; break;
     }
+    char title[256];
+    snprintf(title, sizeof(title),
+             "DCD Engine | %s | N=%d | collisions=%zu | detect=%.2fms | BVH:%s(d=%d) | %s",
+             sname, num_objects, collisions.size(), detect_ms,
+             show_bvh ? "ON" : "OFF", bvh_max_depth,
+             paused ? "PAUSED" : "RUNNING");
+    glfwSetWindowTitle(window, title);
 
     glEnable(GL_DEPTH_TEST);
     glMatrixMode(GL_PROJECTION); glPopMatrix();
@@ -321,13 +394,12 @@ int main(int argc, char** argv) {
 
         // Draw bodies
         glEnable(GL_LIGHTING);
-        float half = 0.5f;  // must match Shape::make_cube half_extent
         for (int i = 0; i < (int)scene.bodies.size(); i++) {
             bool hit = colliding_set.count(i) > 0;
             if (hit)
-                draw_cube_at(scene.bodies[i].position, half, 1.0f, 0.2f, 0.15f, 0.95f);
+                draw_body_at(scene.bodies[i], 1.0f, 0.2f, 0.15f, 0.95f);
             else
-                draw_cube_at(scene.bodies[i].position, half, 0.35f, 0.65f, 0.9f, 0.85f);
+                draw_body_at(scene.bodies[i], 0.35f, 0.65f, 0.9f, 0.85f);
         }
 
         // HUD (title bar)
