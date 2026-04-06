@@ -1,0 +1,16 @@
+#pragma once
+#include "vec3.h"
+#include "aabb.h"
+#include <cstdint>
+#include <vector>
+
+// Expand a 10-bit integer into 30 bits by inserting 2 zeros before each bit
+uint32_t expand_bits(uint32_t v);
+
+// Compute 30-bit Morton code for a point normalized to [0,1]^3
+uint32_t morton3D(float x, float y, float z);
+
+// Compute Morton codes for a set of centroids within a scene bounding box
+void compute_morton_codes(const std::vector<Vec3>& centroids,
+                          const AABB& scene_bounds,
+                          std::vector<uint32_t>& codes);
