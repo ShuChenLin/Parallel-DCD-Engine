@@ -2,6 +2,7 @@
 #include <algorithm>
 #include <climits>
 #include <functional>
+#include <omp.h>
 
 // Count leading zeros of XOR to measure common prefix length
 static int clz(uint32_t x) {
@@ -96,6 +97,8 @@ void BVH::build(const std::vector<uint32_t>& sorted_codes,
     nodes.resize(2 * n - 1);
 
     // Initialize leaf nodes [n-1, 2n-2]
+    // OpenMP parallel: each leaf is independent
+    #pragma omp parallel for schedule(static)
     for (int i = 0; i < n; i++) {
         int leaf = n - 1 + i;
         nodes[leaf].object_idx = sorted_indices[i];
@@ -106,6 +109,8 @@ void BVH::build(const std::vector<uint32_t>& sorted_codes,
     }
 
     // Build internal nodes [0, n-2] using Karras algorithm
+    // OpenMP parallel: each internal node's range/split is independent
+    #pragma omp parallel for schedule(static)
     for (int i = 0; i < n - 1; i++) {
         int left_bound, right_bound;
         determine_range(sorted_codes, i, left_bound, right_bound);
@@ -146,6 +151,8 @@ void BVH::refit(const std::vector<AABB>& object_aabbs) {
     if (nodes.empty()) return;
 
     // Update leaf AABBs
+    // OpenMP parallel: each leaf AABB update is independent
+    #pragma omp parallel for schedule(static)
     for (int i = 0; i < num_objects; i++) {
         int leaf = num_objects - 1 + i;
         nodes[leaf].box = object_aabbs[nodes[leaf].object_idx];
@@ -188,8 +195,37 @@ void BVH::traverse(std::vector<CollisionPair>& pairs) const {
     pairs.clear();
     if (nodes.empty()) return;
 
-    for (int i = 0; i < num_objects; i++) {
-        int leaf = num_objects - 1 + i;
-        traverse_node(nodes[leaf].object_idx, nodes[leaf].box, pairs);
+    // OpenMP parallel: each leaf query is independent; use thread-local stacks and results
+    int num_threads = omp_get_max_threads();
+    std::vector<std::vector<CollisionPair>> thread_pairs(num_threads);
+    #pragma omp parallel
+    {
+        int tid = omp_get_thread_num();
+        std::vector<int> local_stack;  // thread-local traversal stack
+        #pragma omp for schedule(dynamic, 64)
+        for (int i = 0; i < num_objects; i++) {
+            int leaf = num_objects - 1 + i;
+            int query_obj = nodes[leaf].object_idx;
+            const AABB& query_aabb = nodes[leaf].box;
+
+            local_stack.clear();
+            local_stack.push_back(root);
+            while (!local_stack.empty()) {
+                int idx = local_stack.back(); local_stack.pop_back();
+                if (!AABB::overlaps(query_aabb, nodes[idx].box)) continue;
+                if (nodes[idx].is_leaf()) {
+                    int other = nodes[idx].object_idx;
+                    if (query_obj < other) {
+                        thread_pairs[tid].push_back({query_obj, other});
+                    }
+                } else {
+                    local_stack.push_back(nodes[idx].left);
+                    local_stack.push_back(nodes[idx].right);
+                }
+            }
+        }
+    }
+    for (int t = 0; t < num_threads; t++) {
+        pairs.insert(pairs.end(), thread_pairs[t].begin(), thread_pairs[t].end());
     }
 }

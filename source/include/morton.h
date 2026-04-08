@@ -14,3 +14,9 @@ uint32_t morton3D(float x, float y, float z);
 void compute_morton_codes(const std::vector<Vec3>& centroids,
                           const AABB& scene_bounds,
                           std::vector<uint32_t>& codes);
+
+// Parallel radix sort: sorts indices by their Morton codes
+// On return, sorted_indices and sorted_codes are filled in sorted order.
+void parallel_radix_sort(const std::vector<uint32_t>& codes,
+                         std::vector<int>& sorted_indices,
+                         std::vector<uint32_t>& sorted_codes);

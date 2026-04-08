@@ -5,6 +5,7 @@
 #include <random>
 #include <algorithm>
 #include <numeric>
+#include <omp.h>
 
 void Scene::init(int n, Scenario scenario, float world_size) {
     bodies.resize(n);
@@ -102,7 +103,11 @@ void Scene::init(int n, Scenario scenario, float world_size) {
 }
 
 void Scene::step() {
-    for (auto& b : bodies) {
+    int n = static_cast<int>(bodies.size());
+    // OpenMP parallel: each body update is independent
+    #pragma omp parallel for schedule(static)
+    for (int i = 0; i < n; i++) {
+        auto& b = bodies[i];
         b.position += b.velocity * dt;
 
         // Reflect off boundaries
@@ -128,11 +133,28 @@ std::vector<CollisionPair> Scene::detect_collisions_seq() {
     _aabbs.resize(n);
     AABB scene_aabb;
     t.start();
+    // OpenMP parallel: per-body AABB update is independent
+    #pragma omp parallel for schedule(static)
     for (int i = 0; i < n; i++) {
         bodies[i].update_aabb();
         _centroids[i] = bodies[i].world_aabb.centroid();
         _aabbs[i] = bodies[i].world_aabb;
-        scene_aabb.expand(_aabbs[i]);
+    }
+    // OpenMP parallel: reduce scene AABB (manual reduction since AABB is custom type)
+    {
+        int num_threads = omp_get_max_threads();
+        std::vector<AABB> local_aabbs(num_threads);
+        #pragma omp parallel
+        {
+            int tid = omp_get_thread_num();
+            #pragma omp for schedule(static)
+            for (int i = 0; i < n; i++) {
+                local_aabbs[tid].expand(_aabbs[i]);
+            }
+        }
+        for (int t = 0; t < num_threads; t++) {
+            scene_aabb.expand(local_aabbs[t]);
+        }
     }
     stage_times.aabb_ms = t.stop();
 
@@ -141,17 +163,9 @@ std::vector<CollisionPair> Scene::detect_collisions_seq() {
     compute_morton_codes(_centroids, scene_aabb, _codes);
     stage_times.morton_ms = t.stop();
 
-    // 3. Sort by Morton code
-    _indices.resize(n);
-    std::iota(_indices.begin(), _indices.end(), 0);
+    // 3. Sort by Morton code (parallel radix sort)
     t.start();
-    std::sort(_indices.begin(), _indices.end(), [&](int a, int b) {
-        return _codes[a] < _codes[b];
-    });
-    _sorted_codes.resize(n);
-    for (int i = 0; i < n; i++) {
-        _sorted_codes[i] = _codes[_indices[i]];
-    }
+    parallel_radix_sort(_codes, _indices, _sorted_codes);
     stage_times.sort_ms = t.stop();
 
     // 4. Build LBVH
@@ -168,9 +182,26 @@ std::vector<CollisionPair> Scene::detect_collisions_seq() {
     // 6. Narrow phase: GJK on each candidate pair
     t.start();
     _confirmed.clear();
-    for (const auto& p : _broad_pairs) {
-        if (gjk_intersect(bodies[p.a], bodies[p.b])) {
-            _confirmed.push_back(p);
+    {
+        int np = static_cast<int>(_broad_pairs.size());
+        int num_threads = omp_get_max_threads();
+        std::vector<std::vector<CollisionPair>> thread_confirmed(num_threads);
+        // OpenMP parallel: each GJK test is independent
+        #pragma omp parallel
+        {
+            int tid = omp_get_thread_num();
+            #pragma omp for schedule(dynamic, 64)
+            for (int i = 0; i < np; i++) {
+                const auto& p = _broad_pairs[i];
+                if (gjk_intersect(bodies[p.a], bodies[p.b])) {
+                    thread_confirmed[tid].push_back(p);
+                }
+            }
+        }
+        for (int t = 0; t < num_threads; t++) {
+            _confirmed.insert(_confirmed.end(),
+                              thread_confirmed[t].begin(),
+                              thread_confirmed[t].end());
         }
     }
     stage_times.gjk_ms = t.stop();
