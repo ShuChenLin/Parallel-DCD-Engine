@@ -19,6 +19,9 @@ struct BVH {
     int root;
     int num_objects;
 
+    // Reset topology without freeing node memory (reuse across frames)
+    void clear() { nodes.clear(); root = 0; num_objects = 0; }
+
     // Build LBVH from sorted Morton codes and object indices.
     // sorted_codes and sorted_indices must already be sorted by Morton code.
     void build(const std::vector<uint32_t>& sorted_codes,

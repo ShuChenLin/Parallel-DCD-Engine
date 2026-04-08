@@ -4,6 +4,7 @@
 #include "collision.h"
 #include <vector>
 #include <string>
+#include "timer.h"
 
 enum class Scenario {
     RANDOM_WALK,
@@ -16,6 +17,16 @@ struct Scene {
     AABB bounds;  // world boundary for reflection
     float dt;
     BVH last_bvh;  // BVH from last detection (for visualization)
+
+    // Per-stage timing from last detect_collisions_seq() call
+    struct StageTimes {
+        double aabb_ms    = 0;
+        double morton_ms  = 0;
+        double sort_ms    = 0;
+        double build_ms   = 0;
+        double traverse_ms= 0;
+        double gjk_ms     = 0;
+    } stage_times;
 
     // Initialize a scene with n bodies of a given scenario
     void init(int n, Scenario scenario, float world_size = 100.0f);

@@ -121,23 +121,30 @@ std::vector<CollisionPair> Scene::detect_collisions_seq() {
     int n = static_cast<int>(bodies.size());
     if (n == 0) return {};
 
+    Timer t;
+
     // 1. Update AABBs and gather centroids
     _centroids.resize(n);
     _aabbs.resize(n);
     AABB scene_aabb;
+    t.start();
     for (int i = 0; i < n; i++) {
         bodies[i].update_aabb();
         _centroids[i] = bodies[i].world_aabb.centroid();
         _aabbs[i] = bodies[i].world_aabb;
         scene_aabb.expand(_aabbs[i]);
     }
+    stage_times.aabb_ms = t.stop();
 
     // 2. Compute Morton codes
+    t.start();
     compute_morton_codes(_centroids, scene_aabb, _codes);
+    stage_times.morton_ms = t.stop();
 
     // 3. Sort by Morton code
     _indices.resize(n);
     std::iota(_indices.begin(), _indices.end(), 0);
+    t.start();
     std::sort(_indices.begin(), _indices.end(), [&](int a, int b) {
         return _codes[a] < _codes[b];
     });
@@ -145,21 +152,28 @@ std::vector<CollisionPair> Scene::detect_collisions_seq() {
     for (int i = 0; i < n; i++) {
         _sorted_codes[i] = _codes[_indices[i]];
     }
+    stage_times.sort_ms = t.stop();
 
     // 4. Build LBVH
-    last_bvh = BVH();
+    t.start();
+    last_bvh.clear();
     last_bvh.build(_sorted_codes, _indices, _aabbs);
+    stage_times.build_ms = t.stop();
 
     // 5. Broad phase: BVH traversal
+    t.start();
     last_bvh.traverse(_broad_pairs);
+    stage_times.traverse_ms = t.stop();
 
     // 6. Narrow phase: GJK on each candidate pair
+    t.start();
     _confirmed.clear();
     for (const auto& p : _broad_pairs) {
         if (gjk_intersect(bodies[p.a], bodies[p.b])) {
             _confirmed.push_back(p);
         }
     }
+    stage_times.gjk_ms = t.stop();
 
     return _confirmed;
 }
