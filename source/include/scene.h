@@ -33,4 +33,14 @@ struct Scene {
 
     // Brute-force O(N^2) for correctness validation
     std::vector<CollisionPair> detect_collisions_bruteforce();
+
+private:
+    // Scratch buffers reused each frame to avoid per-frame malloc
+    std::vector<Vec3>          _centroids;
+    std::vector<AABB>          _aabbs;
+    std::vector<uint32_t>      _codes;
+    std::vector<int>           _indices;
+    std::vector<uint32_t>      _sorted_codes;
+    std::vector<CollisionPair> _broad_pairs;
+    std::vector<CollisionPair> _confirmed;
 };

@@ -1,7 +1,7 @@
 #include "bvh.h"
 #include <algorithm>
-#include <stack>
 #include <climits>
+#include <functional>
 
 // Count leading zeros of XOR to measure common prefix length
 static int clz(uint32_t x) {
@@ -146,48 +146,31 @@ void BVH::refit(const std::vector<AABB>& object_aabbs) {
     if (nodes.empty()) return;
 
     // Update leaf AABBs
-    int n = num_objects;
-    for (int i = 0; i < n; i++) {
-        int leaf = n - 1 + i;
+    for (int i = 0; i < num_objects; i++) {
+        int leaf = num_objects - 1 + i;
         nodes[leaf].box = object_aabbs[nodes[leaf].object_idx];
     }
 
-    // Bottom-up: post-order traversal to recompute internal AABBs
-    // Use iterative post-order
-    std::stack<int> visit;
-    std::stack<int> order;
-    visit.push(root);
-    while (!visit.empty()) {
-        int idx = visit.top(); visit.pop();
-        order.push(idx);
-        if (nodes[idx].left >= 0 && !nodes[nodes[idx].left].is_leaf()) {
-            visit.push(nodes[idx].left);
-        }
-        if (nodes[idx].right >= 0 && !nodes[nodes[idx].right].is_leaf()) {
-            visit.push(nodes[idx].right);
-        }
-    }
-    // Process in reverse (leaves before parents)
-    while (!order.empty()) {
-        int idx = order.top(); order.pop();
-        if (!nodes[idx].is_leaf()) {
-            nodes[idx].box = AABB::merge(nodes[nodes[idx].left].box,
-                                         nodes[nodes[idx].right].box);
-        }
-    }
+    // Post-order traversal: children updated before parent
+    std::function<void(int)> update = [&](int idx) {
+        if (nodes[idx].is_leaf()) return;
+        update(nodes[idx].left);
+        update(nodes[idx].right);
+        nodes[idx].box = AABB::merge(nodes[nodes[idx].left].box,
+                                     nodes[nodes[idx].right].box);
+    };
+    update(root);
 }
 
 void BVH::traverse_node(int query_obj, const AABB& query_aabb,
                          std::vector<CollisionPair>& pairs) const {
-    std::stack<int> stack;
-    stack.push(root);
+    _stack_buf.clear();
+    _stack_buf.push_back(root);
 
-    while (!stack.empty()) {
-        int idx = stack.top(); stack.pop();
+    while (!_stack_buf.empty()) {
+        int idx = _stack_buf.back(); _stack_buf.pop_back();
 
-        if (!AABB::overlaps(query_aabb, nodes[idx].box)) {
-            continue;
-        }
+        if (!AABB::overlaps(query_aabb, nodes[idx].box)) continue;
 
         if (nodes[idx].is_leaf()) {
             int other = nodes[idx].object_idx;
@@ -195,8 +178,8 @@ void BVH::traverse_node(int query_obj, const AABB& query_aabb,
                 pairs.push_back({query_obj, other});
             }
         } else {
-            stack.push(nodes[idx].left);
-            stack.push(nodes[idx].right);
+            _stack_buf.push_back(nodes[idx].left);
+            _stack_buf.push_back(nodes[idx].right);
         }
     }
 }
@@ -209,5 +192,4 @@ void BVH::traverse(std::vector<CollisionPair>& pairs) const {
         int leaf = num_objects - 1 + i;
         traverse_node(nodes[leaf].object_idx, nodes[leaf].box, pairs);
     }
-    deduplicate(pairs);
 }

@@ -32,6 +32,8 @@ struct BVH {
     void traverse(std::vector<CollisionPair>& pairs) const;
 
 private:
+    mutable std::vector<int> _stack_buf;  // reused across traverse_node calls
+
     // Karras delta function: length of longest common prefix
     int delta(const std::vector<uint32_t>& codes, int i, int j) const;
 

@@ -74,6 +74,11 @@ void Scene::init(int n, Scenario scenario, float world_size) {
             // Objects stacked high, falling down (gravity-like)
             float spacing = obj_size * 2.5f;
             int per_row = std::max(1, static_cast<int>(std::cbrt(n)));
+            int iz_max = (n - 1) / (per_row * per_row);
+            // Fit all layers into the upper half of the world, guaranteed in bounds
+            float avail_y = world_size - 2.0f * margin;
+            float y_step = (iz_max > 0) ? (avail_y * 0.5f / iz_max) : spacing * 2.0f;
+            float y_base = margin + avail_y * 0.5f;  // start at mid-height, stack up
             for (int i = 0; i < n; i++) {
                 bodies[i].shape = Shape::make_cube(obj_size * 0.5f);
                 int ix = i % per_row;
@@ -81,7 +86,7 @@ void Scene::init(int n, Scenario scenario, float world_size) {
                 int iz = i / (per_row * per_row);
                 bodies[i].position = {
                     margin + ix * spacing + rand_float(-0.1f, 0.1f),
-                    margin + iz * spacing * 2.0f + world_size * 0.3f,  // stacked high
+                    y_base  + iz * y_step,  // stacked high, always within bounds
                     margin + iy * spacing + rand_float(-0.1f, 0.1f)
                 };
                 bodies[i].velocity = {
@@ -109,8 +114,6 @@ void Scene::step() {
             if (*pos < lo) { *pos = lo + (lo - *pos); *vel = std::abs(*vel); }
             if (*pos > hi) { *pos = hi - (*pos - hi); *vel = -std::abs(*vel); }
         }
-
-        b.update_aabb();
     }
 }
 
@@ -118,48 +121,47 @@ std::vector<CollisionPair> Scene::detect_collisions_seq() {
     int n = static_cast<int>(bodies.size());
     if (n == 0) return {};
 
-    // 1. Gather centroids and AABBs
-    std::vector<Vec3> centroids(n);
-    std::vector<AABB> aabbs(n);
+    // 1. Update AABBs and gather centroids
+    _centroids.resize(n);
+    _aabbs.resize(n);
     AABB scene_aabb;
     for (int i = 0; i < n; i++) {
-        centroids[i] = bodies[i].world_aabb.centroid();
-        aabbs[i] = bodies[i].world_aabb;
-        scene_aabb.expand(aabbs[i]);
+        bodies[i].update_aabb();
+        _centroids[i] = bodies[i].world_aabb.centroid();
+        _aabbs[i] = bodies[i].world_aabb;
+        scene_aabb.expand(_aabbs[i]);
     }
 
     // 2. Compute Morton codes
-    std::vector<uint32_t> codes;
-    compute_morton_codes(centroids, scene_aabb, codes);
+    compute_morton_codes(_centroids, scene_aabb, _codes);
 
     // 3. Sort by Morton code
-    std::vector<int> indices(n);
-    std::iota(indices.begin(), indices.end(), 0);
-    std::sort(indices.begin(), indices.end(), [&](int a, int b) {
-        return codes[a] < codes[b];
+    _indices.resize(n);
+    std::iota(_indices.begin(), _indices.end(), 0);
+    std::sort(_indices.begin(), _indices.end(), [&](int a, int b) {
+        return _codes[a] < _codes[b];
     });
-    std::vector<uint32_t> sorted_codes(n);
+    _sorted_codes.resize(n);
     for (int i = 0; i < n; i++) {
-        sorted_codes[i] = codes[indices[i]];
+        _sorted_codes[i] = _codes[_indices[i]];
     }
 
     // 4. Build LBVH
     last_bvh = BVH();
-    last_bvh.build(sorted_codes, indices, aabbs);
+    last_bvh.build(_sorted_codes, _indices, _aabbs);
 
     // 5. Broad phase: BVH traversal
-    std::vector<CollisionPair> broad_pairs;
-    last_bvh.traverse(broad_pairs);
+    last_bvh.traverse(_broad_pairs);
 
     // 6. Narrow phase: GJK on each candidate pair
-    std::vector<CollisionPair> confirmed;
-    for (const auto& p : broad_pairs) {
+    _confirmed.clear();
+    for (const auto& p : _broad_pairs) {
         if (gjk_intersect(bodies[p.a], bodies[p.b])) {
-            confirmed.push_back(p);
+            _confirmed.push_back(p);
         }
     }
 
-    return confirmed;
+    return _confirmed;
 }
 
 std::vector<CollisionPair> Scene::detect_collisions_bruteforce() {

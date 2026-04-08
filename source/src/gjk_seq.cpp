@@ -34,11 +34,12 @@ struct Simplex {
     int count = 0;
 
     void push_front(const Vec3& p) {
-        // Shift existing points
-        for (int i = count; i > 0; i--)
+        // Shift existing points (cap at 3 to avoid writing pts[4])
+        int shift = std::min(count, 3);
+        for (int i = shift; i > 0; i--)
             pts[i] = pts[i - 1];
         pts[0] = p;
-        count = std::min(count + 1, 4);
+        if (count < 4) count++;
     }
 };
 
@@ -142,7 +143,7 @@ bool gjk_intersect(const Body& a, const Body& b) {
     for (int iter = 0; iter < 64; iter++) {
         sup = support(a, b, dir);
 
-        if (sup.dot(dir) < -1e-8f) {
+        if (sup.dot(dir) < 1e-6f) {
             return false;  // No intersection
         }
 
