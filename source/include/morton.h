@@ -10,7 +10,18 @@ uint32_t expand_bits(uint32_t v);
 // Compute 30-bit Morton code for a point normalized to [0,1]^3
 uint32_t morton3D(float x, float y, float z);
 
-// Compute Morton codes for a set of centroids within a scene bounding box
-void compute_morton_codes(const std::vector<Vec3>& centroids,
-                          const AABB& scene_bounds,
-                          std::vector<uint32_t>& codes);
+// Sequential morton + sort
+void compute_morton_codes_seq(const std::vector<Vec3>& centroids,
+                              const AABB& scene_bounds,
+                              std::vector<uint32_t>& codes);
+void radix_sort_seq(const std::vector<uint32_t>& codes,
+                    std::vector<int>& sorted_indices,
+                    std::vector<uint32_t>& sorted_codes);
+
+// OpenMP morton + sort
+void compute_morton_codes_omp(const std::vector<Vec3>& centroids,
+                              const AABB& scene_bounds,
+                              std::vector<uint32_t>& codes);
+void radix_sort_omp(const std::vector<uint32_t>& codes,
+                    std::vector<int>& sorted_indices,
+                    std::vector<uint32_t>& sorted_codes);

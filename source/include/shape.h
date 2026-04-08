@@ -2,6 +2,7 @@
 #include "vec3.h"
 #include "aabb.h"
 #include <vector>
+#include <cmath>
 
 struct Shape {
     std::vector<Vec3> vertices;
@@ -47,6 +48,32 @@ struct Shape {
         s.vertices.push_back({-1, 1, -1});
         s.vertices.push_back({-1, -1, 1});
         for (auto& v : s.vertices) v = v * (scale * 0.5f);
+        return s;
+    }
+
+    static Shape make_octahedron(float half_extent = 0.5f) {
+        Shape s;
+        float h = half_extent;
+        s.vertices.push_back({ h, 0, 0});
+        s.vertices.push_back({-h, 0, 0});
+        s.vertices.push_back({0,  h, 0});
+        s.vertices.push_back({0, -h, 0});
+        s.vertices.push_back({0, 0,  h});
+        s.vertices.push_back({0, 0, -h});
+        return s;
+    }
+
+    static Shape make_icosphere(float radius = 0.5f) {
+        Shape s;
+        float t = (1.0f + std::sqrt(5.0f)) / 2.0f;
+        float scale = radius / std::sqrt(1.0f + t * t);
+        float a = 1.0f * scale, b = t * scale;
+        s.vertices.push_back({-a,  b, 0}); s.vertices.push_back({ a,  b, 0});
+        s.vertices.push_back({-a, -b, 0}); s.vertices.push_back({ a, -b, 0});
+        s.vertices.push_back({0, -a,  b}); s.vertices.push_back({0,  a,  b});
+        s.vertices.push_back({0, -a, -b}); s.vertices.push_back({0,  a, -b});
+        s.vertices.push_back({ b, 0, -a}); s.vertices.push_back({ b, 0,  a});
+        s.vertices.push_back({-b, 0, -a}); s.vertices.push_back({-b, 0,  a});
         return s;
     }
 };

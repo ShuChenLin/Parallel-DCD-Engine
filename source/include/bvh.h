@@ -16,33 +16,24 @@ struct BVHNode {
 
 struct BVH {
     std::vector<BVHNode> nodes;  // [0, n-2] internal, [n-1, 2n-2] leaves
-    int root;
-    int num_objects;
+    int root = 0;
+    int num_objects = 0;
 
-    // Build LBVH from sorted Morton codes and object indices.
-    // sorted_codes and sorted_indices must already be sorted by Morton code.
-    void build(const std::vector<uint32_t>& sorted_codes,
-               const std::vector<int>& sorted_indices,
-               const std::vector<AABB>& object_aabbs);
-
-    // Refit: update AABBs bottom-up keeping existing topology
-    void refit(const std::vector<AABB>& object_aabbs);
-
-    // Traverse: find all overlapping pairs using self-query
-    void traverse(std::vector<CollisionPair>& pairs) const;
-
-private:
-    // Karras delta function: length of longest common prefix
-    int delta(const std::vector<uint32_t>& codes, int i, int j) const;
-
-    // Determine range for internal node i
-    void determine_range(const std::vector<uint32_t>& codes, int i,
-                         int& left, int& right) const;
-
-    // Find split position within range
-    int find_split(const std::vector<uint32_t>& codes, int left, int right) const;
-
-    // Stack-based traversal for one query object
-    void traverse_node(int query_obj, const AABB& query_aabb,
-                       std::vector<CollisionPair>& pairs) const;
+    void clear() { nodes.clear(); root = 0; num_objects = 0; }
 };
+
+// Sequential BVH operations
+void bvh_build_seq(BVH& bvh,
+                   const std::vector<uint32_t>& sorted_codes,
+                   const std::vector<int>& sorted_indices,
+                   const std::vector<AABB>& object_aabbs);
+void bvh_refit_seq(BVH& bvh, const std::vector<AABB>& object_aabbs);
+void bvh_traverse_seq(const BVH& bvh, std::vector<CollisionPair>& pairs);
+
+// OpenMP BVH operations
+void bvh_build_omp(BVH& bvh,
+                   const std::vector<uint32_t>& sorted_codes,
+                   const std::vector<int>& sorted_indices,
+                   const std::vector<AABB>& object_aabbs);
+void bvh_refit_omp(BVH& bvh, const std::vector<AABB>& object_aabbs);
+void bvh_traverse_omp(const BVH& bvh, std::vector<CollisionPair>& pairs);
