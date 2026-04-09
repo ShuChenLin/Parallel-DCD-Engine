@@ -23,7 +23,7 @@ OMP_OBJ    = $(OMP_SRC:.cpp=.o)
 all: dcd_seq dcd_viz dcd_test
 
 # Sequential CLI
-dcd_seq: src/main.o $(SHARED_OBJ) $(SEQ_OBJ)
+dcd_seq: src/seq/main.o $(SHARED_OBJ) $(SEQ_OBJ)
 	$(CXX) $(CXXFLAGS) -o $@ $^
 
 # Visualizer (sequential)
@@ -34,7 +34,7 @@ src/renderer.o: src/renderer.cpp
 	$(CXX) $(CXXFLAGS) $(GLFW_CFLAGS) -c -o $@ $<
 
 # OpenMP CLI (compile OMP sources with -fopenmp, link seq/gjk_seq for GJK)
-dcd_omp: src/main_omp.o $(SHARED_OBJ) $(OMP_OBJ) src/seq/gjk_seq.o
+dcd_omp: src/omp/main_omp.o $(SHARED_OBJ) $(OMP_OBJ) src/seq/gjk_seq.o
 	$(CXX) $(CXXFLAGS) -fopenmp -o $@ $^
 
 src/omp/%.o: src/omp/%.cpp
