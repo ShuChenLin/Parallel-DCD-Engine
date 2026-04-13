@@ -46,6 +46,12 @@ struct Scene {
     // Full collision detection pipeline (OpenMP)
     std::vector<CollisionPair> detect_collisions_omp();
 
+    // Advance one time step (CUDA)
+    void step_cuda();
+
+    // Full collision detection pipeline (CUDA)
+    std::vector<CollisionPair> detect_collisions_cuda();
+
     // Brute-force O(N^2) for correctness validation
     std::vector<CollisionPair> detect_collisions_bruteforce();
 
