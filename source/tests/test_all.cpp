@@ -83,7 +83,7 @@ void test_morton_batch() {
     std::vector<Vec3> pts = {{1,1,1},{5,5,5},{9,9,9}};
     AABB bounds({0,0,0},{10,10,10});
     std::vector<uint32_t> codes;
-    compute_morton_codes(pts, bounds, codes);
+    compute_morton_codes_seq(pts, bounds, codes);
     ASSERT(codes.size() == 3);
     ASSERT(codes[0] < codes[1]);
     ASSERT(codes[1] < codes[2]);
@@ -103,14 +103,13 @@ void test_bvh_build_small() {
     for (auto& a : aabbs) { centroids.push_back(a.centroid()); scene_box.expand(a); }
 
     std::vector<uint32_t> codes;
-    compute_morton_codes(centroids, scene_box, codes);
-    std::vector<int> idx(4); std::iota(idx.begin(), idx.end(), 0);
-    std::sort(idx.begin(), idx.end(), [&](int a, int b){ return codes[a] < codes[b]; });
-    std::vector<uint32_t> sorted(4);
-    for (int i = 0; i < 4; i++) sorted[i] = codes[idx[i]];
+    compute_morton_codes_seq(centroids, scene_box, codes);
+    std::vector<int> idx;
+    std::vector<uint32_t> sorted;
+    radix_sort_seq(codes, idx, sorted);
 
     BVH bvh;
-    bvh.build(sorted, idx, aabbs);
+    bvh_build_seq(bvh, sorted, idx, aabbs);
 
     // Root AABB should contain all objects
     ASSERT(AABB::overlaps(bvh.nodes[bvh.root].box, aabbs[0]));
@@ -129,16 +128,15 @@ void test_bvh_traverse_overlapping() {
     for (auto& a : aabbs) { centroids.push_back(a.centroid()); scene_box.expand(a); }
 
     std::vector<uint32_t> codes;
-    compute_morton_codes(centroids, scene_box, codes);
-    std::vector<int> idx(3); std::iota(idx.begin(), idx.end(), 0);
-    std::sort(idx.begin(), idx.end(), [&](int a, int b){ return codes[a] < codes[b]; });
-    std::vector<uint32_t> sorted(3);
-    for (int i = 0; i < 3; i++) sorted[i] = codes[idx[i]];
+    compute_morton_codes_seq(centroids, scene_box, codes);
+    std::vector<int> idx;
+    std::vector<uint32_t> sorted;
+    radix_sort_seq(codes, idx, sorted);
 
     BVH bvh;
-    bvh.build(sorted, idx, aabbs);
+    bvh_build_seq(bvh, sorted, idx, aabbs);
     std::vector<CollisionPair> pairs;
-    bvh.traverse(pairs);
+    bvh_traverse_seq(bvh, pairs);
 
     // Should find pair (0,1), not (0,2) or (1,2)
     bool found_01 = false;

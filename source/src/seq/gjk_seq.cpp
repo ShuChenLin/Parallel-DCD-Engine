@@ -4,7 +4,6 @@
 
 // Minkowski difference support function
 static Vec3 support(const Body& a, const Body& b, const Vec3& d) {
-    // Furthest point in shape A along d (world space)
     Vec3 sa = a.position;
     {
         float best = -1e30f;
@@ -14,7 +13,6 @@ static Vec3 support(const Body& a, const Body& b, const Vec3& d) {
             if (proj > best) { best = proj; sa = w; }
         }
     }
-    // Furthest point in shape B along -d (world space)
     Vec3 sb = b.position;
     {
         Vec3 nd = -d;
@@ -28,7 +26,6 @@ static Vec3 support(const Body& a, const Body& b, const Vec3& d) {
     return sa - sb;
 }
 
-// Simplex: up to 4 points
 struct Simplex {
     std::array<Vec3, 4> pts;
     int count = 0;
@@ -43,7 +40,6 @@ struct Simplex {
     }
 };
 
-// Handle line case: simplex has 2 points {A, B}, A is newest
 static bool do_line(Simplex& s, Vec3& dir) {
     Vec3 a = s.pts[0], b = s.pts[1];
     Vec3 ab = b - a;
@@ -51,7 +47,6 @@ static bool do_line(Simplex& s, Vec3& dir) {
 
     if (ab.dot(ao) > 0) {
         dir = ab.cross(ao).cross(ab);
-        // If direction is zero (origin lies on line AB), pick any perpendicular
         if (dir.length2() < 1e-12f) {
             dir = ab.cross({1, 0, 0});
             if (dir.length2() < 1e-12f)
@@ -65,7 +60,6 @@ static bool do_line(Simplex& s, Vec3& dir) {
     return false;
 }
 
-// Handle triangle case: simplex has 3 points {A, B, C}
 static bool do_triangle(Simplex& s, Vec3& dir) {
     Vec3 a = s.pts[0], b = s.pts[1], c = s.pts[2];
     Vec3 ab = b - a, ac = c - a, ao = -a;
@@ -95,7 +89,6 @@ static bool do_triangle(Simplex& s, Vec3& dir) {
     return false;
 }
 
-// Handle tetrahedron case: simplex has 4 points {A, B, C, D}
 static bool do_tetrahedron(Simplex& s, Vec3& dir) {
     Vec3 a = s.pts[0], b = s.pts[1], c = s.pts[2], d = s.pts[3];
     Vec3 ab = b - a, ac = c - a, ad = d - a, ao = -a;
@@ -117,7 +110,6 @@ static bool do_tetrahedron(Simplex& s, Vec3& dir) {
         return do_triangle(s, dir);
     }
 
-    // Origin is inside the tetrahedron
     return true;
 }
 
@@ -131,7 +123,6 @@ static bool do_simplex(Simplex& s, Vec3& dir) {
 }
 
 bool gjk_intersect(const Body& a, const Body& b) {
-    // Initial direction: between centers
     Vec3 dir = b.position - a.position;
     if (dir.length2() < 1e-10f) dir = {1, 0, 0};
 
@@ -150,10 +141,9 @@ bool gjk_intersect(const Body& a, const Body& b) {
         simplex.push_front(sup);
 
         if (do_simplex(simplex, dir)) {
-            return true;  // Intersection found
+            return true;
         }
 
-        // Guard against degenerate direction (origin likely on boundary)
         if (dir.length2() < 1e-20f) {
             return true;
         }

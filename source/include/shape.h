@@ -2,6 +2,7 @@
 #include "vec3.h"
 #include "aabb.h"
 #include <vector>
+#include <cmath>
 
 struct Shape {
     std::vector<Vec3> vertices;
