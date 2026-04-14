@@ -1,6 +1,10 @@
 CXX      = g++
 CXXFLAGS = -std=c++17 -O2 -Wall -Wextra -Iinclude
 
+# CUDA
+NVCC      = nvcc
+NVCCFLAGS = -std=c++17 -O2 -Iinclude --extended-lambda -Isrc/cuda
+
 # GLFW / OpenGL (macOS)
 GLFW_CFLAGS  = $(shell pkg-config --cflags glfw3 2>/dev/null || echo "-I/opt/homebrew/include")
 GLFW_LIBS    = $(shell pkg-config --libs glfw3 2>/dev/null || echo "-L/opt/homebrew/lib -lglfw")
@@ -15,10 +19,14 @@ SEQ_SRC = src/seq/bvh_seq.cpp src/seq/gjk_seq.cpp src/seq/morton_seq.cpp src/seq
 # OpenMP sources
 OMP_SRC = src/omp/bvh_omp.cpp src/omp/morton_omp.cpp src/omp/scene_omp.cpp
 
+# CUDA sources
+CUDA_SRC = src/cuda/scene_cuda.cu src/cuda/main_cuda.cu
+
 # Object files
 SHARED_OBJ = $(SHARED_SRC:.cpp=.o)
 SEQ_OBJ    = $(SEQ_SRC:.cpp=.o)
 OMP_OBJ    = $(OMP_SRC:.cpp=.o)
+CUDA_OBJ   = $(CUDA_SRC:.cu=.o)
 
 all: dcd_seq dcd_viz dcd_test
 
@@ -40,6 +48,13 @@ dcd_omp: src/omp/main_omp.o $(SHARED_OBJ) $(OMP_OBJ) src/seq/gjk_seq.o
 src/omp/%.o: src/omp/%.cpp
 	$(CXX) $(CXXFLAGS) -fopenmp -c -o $@ $<
 
+# CUDA CLI (link CUDA objects + shared C++ objects + gjk_seq for brute-force)
+dcd_cuda: $(CUDA_OBJ) $(SHARED_OBJ) src/seq/gjk_seq.o
+	$(NVCC) $(NVCCFLAGS) -o $@ $^
+
+src/cuda/%.o: src/cuda/%.cu
+	$(NVCC) $(NVCCFLAGS) -c -o $@ $<
+
 %.o: %.cpp
 	$(CXX) $(CXXFLAGS) -c -o $@ $<
 
@@ -51,6 +66,6 @@ test: dcd_test
 	./dcd_test
 
 clean:
-	rm -f src/*.o src/seq/*.o src/omp/*.o tests/*.o dcd_seq dcd_viz dcd_test dcd_omp
+	rm -f src/*.o src/seq/*.o src/omp/*.o src/cuda/*.o tests/*.o dcd_seq dcd_viz dcd_test dcd_omp dcd_cuda
 
 .PHONY: all clean test
