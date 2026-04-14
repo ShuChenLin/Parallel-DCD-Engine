@@ -4,15 +4,6 @@
 #include <cstdlib>
 #include <cstring>
 
-static const char* scenario_name(Scenario s) {
-    switch (s) {
-        case Scenario::RANDOM_WALK: return "random_walk";
-        case Scenario::TWO_CLUSTER: return "two_cluster";
-        case Scenario::AVALANCHE:   return "avalanche";
-    }
-    return "unknown";
-}
-
 static void run_scenario(Scenario scenario, int n, int frames, bool validate) {
     printf("\n=== Scenario: %s | N=%d | Frames=%d ===\n",
            scenario_name(scenario), n, frames);

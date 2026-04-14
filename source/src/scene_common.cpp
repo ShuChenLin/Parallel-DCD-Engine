@@ -4,6 +4,15 @@
 #include <algorithm>
 #include <cmath>
 
+const char* scenario_name(Scenario s) {
+    switch (s) {
+        case Scenario::RANDOM_WALK: return "random_walk";
+        case Scenario::TWO_CLUSTER: return "two_cluster";
+        case Scenario::AVALANCHE:   return "avalanche";
+    }
+    return "unknown";
+}
+
 void Scene::init(int n, Scenario scenario, float world_size) {
     bodies.resize(n);
     bounds = AABB({0, 0, 0}, {world_size, world_size, world_size});

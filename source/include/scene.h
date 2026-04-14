@@ -11,6 +11,8 @@ enum class Scenario {
     AVALANCHE
 };
 
+const char* scenario_name(Scenario s);
+
 struct StageTimes {
     double aabb_ms = 0;
     double morton_ms = 0;
