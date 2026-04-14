@@ -492,15 +492,12 @@ __global__ void step_kernel(
    Host helpers: upload / download body data
    ================================================================ */
 
-static void upload_bodies(const Scene& scene, CUDAContext& ctx, int n) {
-    std::vector<float3> h_pos(n), h_vel(n);
+/* Upload static shape data (vertices + vert_counts) — called once per scene init */
+static void upload_shapes(const Scene& scene, CUDAContext& ctx, int n) {
     std::vector<float3> h_verts((size_t)n * MAX_VERTS, make_float3(0, 0, 0));
     std::vector<int>    h_vcnt(n);
-
     for (int i = 0; i < n; i++) {
         const auto& b = scene.bodies[i];
-        h_pos[i] = make_float3(b.position.x, b.position.y, b.position.z);
-        h_vel[i] = make_float3(b.velocity.x, b.velocity.y, b.velocity.z);
         int nv = std::min((int)b.shape.vertices.size(), MAX_VERTS);
         h_vcnt[i] = nv;
         for (int j = 0; j < nv; j++) {
@@ -508,10 +505,20 @@ static void upload_bodies(const Scene& scene, CUDAContext& ctx, int n) {
             h_verts[(size_t)i * MAX_VERTS + j] = make_float3(sv.x, sv.y, sv.z);
         }
     }
-    CUDA_CHECK(cudaMemcpy(ctx.d_positions,  h_pos.data(),   n * sizeof(float3), cudaMemcpyHostToDevice));
-    CUDA_CHECK(cudaMemcpy(ctx.d_velocities, h_vel.data(),   n * sizeof(float3), cudaMemcpyHostToDevice));
-    CUDA_CHECK(cudaMemcpy(ctx.d_vertices,   h_verts.data(), (size_t)n * MAX_VERTS * sizeof(float3), cudaMemcpyHostToDevice));
-    CUDA_CHECK(cudaMemcpy(ctx.d_vert_counts, h_vcnt.data(), n * sizeof(int), cudaMemcpyHostToDevice));
+    CUDA_CHECK(cudaMemcpy(ctx.d_vertices,    h_verts.data(), (size_t)n * MAX_VERTS * sizeof(float3), cudaMemcpyHostToDevice));
+    CUDA_CHECK(cudaMemcpy(ctx.d_vert_counts, h_vcnt.data(),  n * sizeof(int), cudaMemcpyHostToDevice));
+    ctx.shapes_uploaded = true;
+}
+
+/* Upload dynamic data (positions + velocities) — called every frame */
+static void upload_dynamic(const Scene& scene, CUDAContext& ctx, int n) {
+    std::vector<float3> h_pos(n), h_vel(n);
+    for (int i = 0; i < n; i++) {
+        h_pos[i] = make_float3(scene.bodies[i].position.x, scene.bodies[i].position.y, scene.bodies[i].position.z);
+        h_vel[i] = make_float3(scene.bodies[i].velocity.x, scene.bodies[i].velocity.y, scene.bodies[i].velocity.z);
+    }
+    CUDA_CHECK(cudaMemcpy(ctx.d_positions,  h_pos.data(), n * sizeof(float3), cudaMemcpyHostToDevice));
+    CUDA_CHECK(cudaMemcpy(ctx.d_velocities, h_vel.data(), n * sizeof(float3), cudaMemcpyHostToDevice));
 }
 
 static void download_positions(Scene& scene, const CUDAContext& ctx, int n) {
@@ -533,7 +540,9 @@ void Scene::step_cuda() {
     if (n == 0) return;
     g_ctx.ensure(n);
 
-    upload_bodies(*this, g_ctx, n);
+    if (!g_ctx.shapes_uploaded || last_bvh.nodes.empty())
+        upload_shapes(*this, g_ctx, n);
+    upload_dynamic(*this, g_ctx, n);
 
     float3 blo = make_float3(bounds.lo.x, bounds.lo.y, bounds.lo.z);
     float3 bhi = make_float3(bounds.hi.x, bounds.hi.y, bounds.hi.z);
@@ -555,7 +564,7 @@ std::vector<CollisionPair> Scene::detect_collisions_cuda() {
     if (n == 0) return {};
 
     g_ctx.ensure(n);
-    upload_bodies(*this, g_ctx, n);
+    /* positions/velocities already on GPU from step_cuda — no re-upload needed */
 
     int grid = (n + BLOCK_SIZE - 1) / BLOCK_SIZE;
 
