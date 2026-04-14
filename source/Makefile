@@ -1,10 +1,10 @@
 CXX      = g++
-CXXFLAGS = -std=c++17 -O2 -Wall -Wextra -Iinclude
+CXXFLAGS = -std=c++17 -O2 -Wall -Wextra -Iinclude -fopenmp
+LDFLAGS  = -fopenmp
 
-# GLFW / OpenGL (macOS)
-GLFW_CFLAGS  = $(shell pkg-config --cflags glfw3 2>/dev/null || echo "-I/opt/homebrew/include")
-GLFW_LIBS    = $(shell pkg-config --libs glfw3 2>/dev/null || echo "-L/opt/homebrew/lib -lglfw")
-GL_LIBS      = -framework OpenGL
+GLFW_CFLAGS  = $(shell pkg-config --cflags glfw3 2>/dev/null)
+GLFW_LIBS    = $(shell pkg-config --libs glfw3 2>/dev/null)
+GL_LIBS      = -lGL
 
 # Shared sources (morton utilities, scene init/bruteforce)
 SHARED_SRC = src/morton.cpp src/scene_common.cpp

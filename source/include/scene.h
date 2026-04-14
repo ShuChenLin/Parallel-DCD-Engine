@@ -4,6 +4,7 @@
 #include "collision.h"
 #include <vector>
 #include <string>
+#include "timer.h"
 
 enum class Scenario {
     RANDOM_WALK,

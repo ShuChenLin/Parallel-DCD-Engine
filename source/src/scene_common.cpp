@@ -79,9 +79,10 @@ void Scene::init(int n, Scenario scenario, float world_size) {
             float spacing = obj_size * 2.5f;
             int per_row = std::max(1, static_cast<int>(std::cbrt(n)));
             int iz_max = (n - 1) / (per_row * per_row);
+            // Fit all layers into the upper half of the world, guaranteed in bounds
             float avail_y = world_size - 2.0f * margin;
             float y_step = (iz_max > 0) ? (avail_y * 0.5f / iz_max) : spacing * 2.0f;
-            float y_base = margin + avail_y * 0.5f;
+            float y_base = margin + avail_y * 0.5f;  // start at mid-height, stack up
             for (int i = 0; i < n; i++) {
                 bodies[i].shape = Shape::make_cube(obj_size * 0.5f);
                 int ix = i % per_row;
@@ -89,7 +90,7 @@ void Scene::init(int n, Scenario scenario, float world_size) {
                 int iz = i / (per_row * per_row);
                 bodies[i].position = {
                     margin + ix * spacing + rand_float(-0.1f, 0.1f),
-                    y_base  + iz * y_step,
+                    y_base  + iz * y_step,  // stacked high, always within bounds
                     margin + iy * spacing + rand_float(-0.1f, 0.1f)
                 };
                 bodies[i].velocity = {

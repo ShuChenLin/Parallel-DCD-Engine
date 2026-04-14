@@ -186,6 +186,61 @@ void test_gjk_tetrahedra() {
     ASSERT(!gjk_intersect(a, b));
 }
 
+void test_gjk_octahedra() {
+    Body a, b;
+    a.shape = Shape::make_octahedron(1.0f);
+    b.shape = Shape::make_octahedron(1.0f);
+    a.position = {0, 0, 0};
+    b.position = {1.0f, 0, 0};  // overlapping (each extends ±1 on x-axis)
+    ASSERT(gjk_intersect(a, b));
+    b.position = {2.1f, 0, 0};  // separated
+    ASSERT(!gjk_intersect(a, b));
+}
+
+void test_gjk_mixed_cube_tetrahedron() {
+    Body a, b;
+    a.shape = Shape::make_cube(1.0f);       // cube half-extent=1, spans [-1,1]
+    b.shape = Shape::make_tetrahedron(2.0f); // tetrahedron scale=2
+    a.position = {0, 0, 0};
+    b.position = {1.0f, 0, 0};  // overlapping
+    ASSERT(gjk_intersect(a, b));
+    b.position = {10.0f, 0, 0}; // separated
+    ASSERT(!gjk_intersect(a, b));
+}
+
+void test_gjk_mixed_cube_octahedron() {
+    Body a, b;
+    a.shape = Shape::make_cube(1.0f);
+    b.shape = Shape::make_octahedron(1.0f);
+    a.position = {0, 0, 0};
+    b.position = {1.5f, 0, 0};  // overlapping
+    ASSERT(gjk_intersect(a, b));
+    b.position = {3.0f, 0, 0};  // separated
+    ASSERT(!gjk_intersect(a, b));
+}
+
+void test_gjk_icosphere() {
+    Body a, b;
+    a.shape = Shape::make_icosphere(1.0f);
+    b.shape = Shape::make_icosphere(1.0f);
+    a.position = {0, 0, 0};
+    b.position = {1.0f, 0, 0};  // overlapping
+    ASSERT(gjk_intersect(a, b));
+    b.position = {3.0f, 0, 0};  // separated
+    ASSERT(!gjk_intersect(a, b));
+}
+
+void test_gjk_mixed_icosphere_cube() {
+    Body a, b;
+    a.shape = Shape::make_icosphere(1.0f);
+    b.shape = Shape::make_cube(1.0f);
+    a.position = {0, 0, 0};
+    b.position = {1.5f, 0, 0};  // overlapping
+    ASSERT(gjk_intersect(a, b));
+    b.position = {5.0f, 0, 0};  // separated
+    ASSERT(!gjk_intersect(a, b));
+}
+
 // ── Scene pipeline (BVH vs brute-force) ──────────────────────────────────────
 void test_pipeline_random_walk() {
     Scene s;
@@ -245,6 +300,11 @@ int main() {
     TEST(gjk_separated);
     TEST(gjk_touching);
     TEST(gjk_tetrahedra);
+    TEST(gjk_octahedra);
+    TEST(gjk_mixed_cube_tetrahedron);
+    TEST(gjk_mixed_cube_octahedron);
+    TEST(gjk_icosphere);
+    TEST(gjk_mixed_icosphere_cube);
 
     printf("\n== Pipeline (BVH vs brute-force) ==\n");
     TEST(pipeline_random_walk);
