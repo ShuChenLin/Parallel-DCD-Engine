@@ -95,9 +95,10 @@ struct CUDAContext {
 
     int*      d_overflow;       // [1]
 
-    int allocated_n;
+    int  allocated_n;
+    bool shapes_uploaded;   // vertices + vert_counts uploaded once per scene init
 
-    CUDAContext() : allocated_n(0) {}
+    CUDAContext() : allocated_n(0), shapes_uploaded(false) {}
 
     void ensure(int n) {
         if (n <= allocated_n) return;
@@ -138,6 +139,7 @@ struct CUDAContext {
 
     void free_all() {
         if (!allocated_n) return;
+        shapes_uploaded = false;
         cudaFree(d_positions);  cudaFree(d_velocities);
         cudaFree(d_vertices);   cudaFree(d_vert_counts);
         cudaFree(d_aabb_lo);    cudaFree(d_aabb_hi);
