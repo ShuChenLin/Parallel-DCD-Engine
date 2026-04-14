@@ -52,7 +52,9 @@ test: dcd_test
 
 # CUDA
 NVCC     = nvcc
-NVFLAGS  = -std=c++17 -O2 -Iinclude --extended-lambda --allow-unsupported-compiler
+# Use GCC 11 as host compiler (CUDA 11.7 is incompatible with GCC 13+ headers)
+NVHOST   = $(shell which g++-11 2>/dev/null || echo g++)
+NVFLAGS  = -std=c++17 -O2 -Iinclude --extended-lambda -ccbin $(NVHOST)
 
 CUDA_SRC = src/cuda/scene_cuda.cu src/cuda/main_cuda.cu
 CUDA_OBJ = $(CUDA_SRC:.cu=.o)
