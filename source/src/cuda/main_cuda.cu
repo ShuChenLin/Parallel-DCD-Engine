@@ -30,6 +30,8 @@ static void run_scenario(Scenario scenario, int n, int frames, bool validate) {
         total_collisions += (int)collisions.size();
 
         if (validate && f == 0) {
+            // Update CPU world_aabb before bruteforce (CUDA only updates AABBs on GPU)
+            for (auto& b : scene.bodies) b.update_aabb();
             auto bf = scene.detect_collisions_bruteforce();
             std::sort(collisions.begin(), collisions.end());
             std::sort(bf.begin(), bf.end());
@@ -81,6 +83,9 @@ int main(int argc, char** argv) {
            prop.totalGlobalMem / (1024 * 1024));
     printf("Objects: %d | Frames: %d | Validate: %s\n",
            n, frames, validate ? "yes" : "no");
+
+    /* Warm up CUDA context before timed runs */
+    cudaFree(nullptr);
 
     run_scenario(Scenario::RANDOM_WALK, n, frames, validate);
     run_scenario(Scenario::TWO_CLUSTER, n, frames, validate);
