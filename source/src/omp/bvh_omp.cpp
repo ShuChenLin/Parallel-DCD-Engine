@@ -161,41 +161,95 @@ void bvh_refit_omp(BVH& bvh, const std::vector<AABB>& object_aabbs) {
     }
 }
 
+// Iterative dual traversal (used per-task in parallel phase).
+// b < 0: self_traverse(a) — all pairs within subtree a
+// b >= 0: cross(a, b)     — all pairs between subtrees a and b
+static void dual_traverse_omp(const std::vector<BVHNode>& nodes,
+                               int a, int b,
+                               std::vector<CollisionPair>& out) {
+    struct Frame { int a, b; };
+    std::vector<Frame> stk;
+    stk.reserve(64);
+    stk.push_back({a, b});
+
+    while (!stk.empty()) {
+        auto [na, nb] = stk.back(); stk.pop_back();
+
+        if (nb < 0) {
+            if (nodes[na].is_leaf()) continue;
+            stk.push_back({nodes[na].left,  -1});
+            stk.push_back({nodes[na].right, -1});
+            stk.push_back({nodes[na].left,  nodes[na].right});
+        } else {
+            if (!AABB::overlaps(nodes[na].box, nodes[nb].box)) continue;
+            bool al = nodes[na].is_leaf(), bl = nodes[nb].is_leaf();
+            if (al && bl) {
+                int oa = nodes[na].object_idx, ob = nodes[nb].object_idx;
+                if (oa < ob) out.push_back({oa, ob});
+                else if (ob < oa) out.push_back({ob, oa});
+                continue;
+            }
+            if (al) {
+                stk.push_back({na, nodes[nb].left});
+                stk.push_back({na, nodes[nb].right});
+            } else {
+                stk.push_back({nodes[na].left,  nb});
+                stk.push_back({nodes[na].right, nb});
+            }
+        }
+    }
+}
+
 void bvh_traverse_omp(const BVH& bvh, std::vector<CollisionPair>& pairs) {
     pairs.clear();
     if (bvh.nodes.empty()) return;
 
-    int n = bvh.num_objects;
     int num_threads = omp_get_max_threads();
-    std::vector<std::vector<CollisionPair>> thread_pairs(num_threads);
 
-    #pragma omp parallel
-    {
-        int tid = omp_get_thread_num();
-        std::vector<int> local_stack;
-        #pragma omp for schedule(dynamic, 64)
-        for (int i = 0; i < n; i++) {
-            int leaf = n - 1 + i;
-            int query_obj = bvh.nodes[leaf].object_idx;
-            const AABB& query_aabb = bvh.nodes[leaf].box;
+    // Phase 1 (serial): BFS-expand until we have enough independent tasks.
+    struct Task { int a, b; };
+    std::vector<Task> pending = {{bvh.root, -1}};
+    const int TARGET = num_threads * 16;
+    int head = 0;
 
-            local_stack.clear();
-            local_stack.push_back(bvh.root);
-            while (!local_stack.empty()) {
-                int idx = local_stack.back(); local_stack.pop_back();
-                if (!AABB::overlaps(query_aabb, bvh.nodes[idx].box)) continue;
-                if (bvh.nodes[idx].is_leaf()) {
-                    int other = bvh.nodes[idx].object_idx;
-                    if (query_obj < other) {
-                        thread_pairs[tid].push_back({query_obj, other});
-                    }
-                } else {
-                    local_stack.push_back(bvh.nodes[idx].left);
-                    local_stack.push_back(bvh.nodes[idx].right);
-                }
+    while (head < (int)pending.size() && (int)pending.size() < TARGET) {
+        Task t = pending[head++];
+
+        if (t.b < 0) {
+            if (bvh.nodes[t.a].is_leaf()) continue;
+            pending.push_back({bvh.nodes[t.a].left,  -1});
+            pending.push_back({bvh.nodes[t.a].right, -1});
+            pending.push_back({bvh.nodes[t.a].left,  bvh.nodes[t.a].right});
+        } else {
+            if (!AABB::overlaps(bvh.nodes[t.a].box, bvh.nodes[t.b].box)) continue;
+            bool al = bvh.nodes[t.a].is_leaf(), bl = bvh.nodes[t.b].is_leaf();
+            if (al && bl) {
+                int oa = bvh.nodes[t.a].object_idx, ob = bvh.nodes[t.b].object_idx;
+                if (oa < ob) pairs.push_back({oa, ob});
+                else if (ob < oa) pairs.push_back({ob, oa});
+                continue;
+            }
+            if (al) {
+                pending.push_back({t.a, bvh.nodes[t.b].left});
+                pending.push_back({t.a, bvh.nodes[t.b].right});
+            } else {
+                pending.push_back({bvh.nodes[t.a].left,  t.b});
+                pending.push_back({bvh.nodes[t.a].right, t.b});
             }
         }
     }
+
+    // Phase 2 (parallel): process all unexpanded tasks.
+    std::vector<Task> tasks(pending.begin() + head, pending.end());
+    int ntasks = (int)tasks.size();
+
+    std::vector<std::vector<CollisionPair>> thread_pairs(num_threads);
+    #pragma omp parallel for schedule(dynamic, 1)
+    for (int i = 0; i < ntasks; i++) {
+        int tid = omp_get_thread_num();
+        dual_traverse_omp(bvh.nodes, tasks[i].a, tasks[i].b, thread_pairs[tid]);
+    }
+
     for (int t = 0; t < num_threads; t++) {
         pairs.insert(pairs.end(), thread_pairs[t].begin(), thread_pairs[t].end());
     }

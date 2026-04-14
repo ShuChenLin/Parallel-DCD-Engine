@@ -14,6 +14,7 @@ static void run_scenario(Scenario scenario, int n, int frames, bool validate) {
     Timer t_total, t_step, t_detect;
     double total_step_ms = 0, total_detect_ms = 0;
     int total_collisions = 0;
+    StageTimes acc_stages;
 
     t_total.start("Total");
     for (int f = 0; f < frames; f++) {
@@ -24,6 +25,13 @@ static void run_scenario(Scenario scenario, int n, int frames, bool validate) {
         t_detect.start("Detect (seq)");
         auto collisions = scene.detect_collisions_seq();
         total_detect_ms += t_detect.stop();
+
+        acc_stages.aabb_ms     += scene.stage_times.aabb_ms;
+        acc_stages.morton_ms   += scene.stage_times.morton_ms;
+        acc_stages.sort_ms     += scene.stage_times.sort_ms;
+        acc_stages.build_ms    += scene.stage_times.build_ms;
+        acc_stages.traverse_ms += scene.stage_times.traverse_ms;
+        acc_stages.gjk_ms      += scene.stage_times.gjk_ms;
 
         total_collisions += static_cast<int>(collisions.size());
 
@@ -42,8 +50,12 @@ static void run_scenario(Scenario scenario, int n, int frames, bool validate) {
         }
 
         if (f < 3 || f == frames - 1) {
-            printf("  Frame %3d: %zu collisions | detect: %.3f ms\n",
-                   f, collisions.size(), t_detect.elapsed_ms);
+            printf("  Frame %3d: %zu collisions | detect: %.3f ms"
+                   " [aabb=%.2f mort=%.2f sort=%.2f build=%.2f trav=%.2f gjk=%.2f]\n",
+                   f, collisions.size(), t_detect.elapsed_ms,
+                   scene.stage_times.aabb_ms, scene.stage_times.morton_ms,
+                   scene.stage_times.sort_ms, scene.stage_times.build_ms,
+                   scene.stage_times.traverse_ms, scene.stage_times.gjk_ms);
         }
     }
     double total_ms = t_total.stop();
@@ -53,6 +65,13 @@ static void run_scenario(Scenario scenario, int n, int frames, bool validate) {
     printf("  Avg step time:     %8.3f ms\n", total_step_ms / frames);
     printf("  Avg detect time:   %8.3f ms\n", total_detect_ms / frames);
     printf("  Total collisions:  %d (across %d frames)\n", total_collisions, frames);
+    printf("  ----- Avg stage breakdown (%d frames) -----\n", frames);
+    printf("    AABB update:     %8.3f ms\n", acc_stages.aabb_ms     / frames);
+    printf("    Morton codes:    %8.3f ms\n", acc_stages.morton_ms   / frames);
+    printf("    Sort:            %8.3f ms\n", acc_stages.sort_ms     / frames);
+    printf("    BVH build:       %8.3f ms\n", acc_stages.build_ms    / frames);
+    printf("    BVH traverse:    %8.3f ms\n", acc_stages.traverse_ms / frames);
+    printf("    GJK narrow:      %8.3f ms\n", acc_stages.gjk_ms      / frames);
 }
 
 int main(int argc, char** argv) {

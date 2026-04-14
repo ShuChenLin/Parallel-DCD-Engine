@@ -139,30 +139,49 @@ void bvh_refit_seq(BVH& bvh, const std::vector<AABB>& object_aabbs) {
     update(bvh.root);
 }
 
-void bvh_traverse_seq(const BVH& bvh, std::vector<CollisionPair>& pairs) {
-    pairs.clear();
-    if (bvh.nodes.empty()) return;
+// Iterative dual traversal.
+// b < 0: self_traverse(a) — all pairs within subtree a
+// b >= 0: cross(a, b)     — all pairs between subtrees a and b
+static void dual_traverse_seq(const std::vector<BVHNode>& nodes,
+                               int a, int b,
+                               std::vector<CollisionPair>& out) {
+    struct Frame { int a, b; };
+    std::vector<Frame> stk;
+    stk.reserve(64);
+    stk.push_back({a, b});
 
-    std::vector<int> stack;
-    for (int i = 0; i < bvh.num_objects; i++) {
-        int leaf = bvh.num_objects - 1 + i;
-        int query_obj = bvh.nodes[leaf].object_idx;
-        const AABB& query_aabb = bvh.nodes[leaf].box;
+    while (!stk.empty()) {
+        auto [na, nb] = stk.back(); stk.pop_back();
 
-        stack.clear();
-        stack.push_back(bvh.root);
-        while (!stack.empty()) {
-            int idx = stack.back(); stack.pop_back();
-            if (!AABB::overlaps(query_aabb, bvh.nodes[idx].box)) continue;
-            if (bvh.nodes[idx].is_leaf()) {
-                int other = bvh.nodes[idx].object_idx;
-                if (query_obj < other) {
-                    pairs.push_back({query_obj, other});
-                }
+        if (nb < 0) {
+            // self_traverse(na)
+            if (nodes[na].is_leaf()) continue;
+            stk.push_back({nodes[na].left,  -1});
+            stk.push_back({nodes[na].right, -1});
+            stk.push_back({nodes[na].left,  nodes[na].right});
+        } else {
+            // cross(na, nb)
+            if (!AABB::overlaps(nodes[na].box, nodes[nb].box)) continue;
+            bool al = nodes[na].is_leaf(), bl = nodes[nb].is_leaf();
+            if (al && bl) {
+                int oa = nodes[na].object_idx, ob = nodes[nb].object_idx;
+                if (oa < ob) out.push_back({oa, ob});
+                else if (ob < oa) out.push_back({ob, oa});
+                continue;
+            }
+            if (al) {
+                stk.push_back({na, nodes[nb].left});
+                stk.push_back({na, nodes[nb].right});
             } else {
-                stack.push_back(bvh.nodes[idx].left);
-                stack.push_back(bvh.nodes[idx].right);
+                stk.push_back({nodes[na].left,  nb});
+                stk.push_back({nodes[na].right, nb});
             }
         }
     }
+}
+
+void bvh_traverse_seq(const BVH& bvh, std::vector<CollisionPair>& pairs) {
+    pairs.clear();
+    if (bvh.nodes.empty()) return;
+    dual_traverse_seq(bvh.nodes, bvh.root, -1, pairs);
 }

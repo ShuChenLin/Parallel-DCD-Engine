@@ -40,21 +40,34 @@ std::vector<CollisionPair> Scene::detect_collisions_seq() {
     }
     stage_times.aabb_ms = t.stop();
 
-    // 2. Compute Morton codes
-    t.start();
-    compute_morton_codes_seq(_centroids, scene_aabb, _codes);
-    stage_times.morton_ms = t.stop();
+    // 2-4. Full rebuild every rebuild_interval frames; refit only otherwise.
+    bool do_rebuild = (frames_since_rebuild >= rebuild_interval)
+                   || last_bvh.nodes.empty();
 
-    // 3. Sort by Morton code
-    t.start();
-    radix_sort_seq(_codes, _indices, _sorted_codes);
-    stage_times.sort_ms = t.stop();
+    if (do_rebuild) {
+        t.start();
+        compute_morton_codes_seq(_centroids, scene_aabb, _codes);
+        stage_times.morton_ms = t.stop();
 
-    // 4. Build LBVH
-    t.start();
-    last_bvh.clear();
-    bvh_build_seq(last_bvh, _sorted_codes, _indices, _aabbs);
-    stage_times.build_ms = t.stop();
+        t.start();
+        radix_sort_seq(_codes, _indices, _sorted_codes);
+        stage_times.sort_ms = t.stop();
+
+        t.start();
+        last_bvh.clear();
+        bvh_build_seq(last_bvh, _sorted_codes, _indices, _aabbs);
+        stage_times.build_ms = t.stop();
+
+        frames_since_rebuild = 0;
+    } else {
+        stage_times.morton_ms = 0;
+        stage_times.sort_ms   = 0;
+
+        t.start();
+        bvh_refit_seq(last_bvh, _aabbs);
+        stage_times.build_ms = t.stop();
+    }
+    frames_since_rebuild++;
 
     // 5. Broad phase: BVH traversal
     t.start();
