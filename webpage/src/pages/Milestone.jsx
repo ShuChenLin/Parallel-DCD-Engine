@@ -192,8 +192,8 @@ export default function Milestone() {
       </p>
 
       <h3>Result on PSC (N=500,000)</h3>
-      <img src="/Parallel-DCD-Engine/webpage/public/n500k_1_speedup.png" />
-      <img src="/Parallel-DCD-Engine/webpage/public/n500k_3_stage_speedup_tc.png" />
+      <img src="/Parallel-DCD-Engine/n500k_1_speedup.png" alt="Strong-scaling speedup" />
+      <img src="/Parallel-DCD-Engine/n500k_3_stage_speedup_tc.png" alt="Per-stage speedup (two_cluster)" />
       <p>
         Best speedup occurs in the two_cluster scene since GJK dominates the workload. The best-scaling
         stages are GJK and BVH traversal. The collapse at 128 cores happens because of inter-socket
