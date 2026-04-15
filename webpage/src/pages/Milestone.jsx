@@ -126,7 +126,7 @@ export default function Milestone() {
         <li>Speedup curves: OpenMP (T=1 → 128) and CUDA vs. sequential.</li>
         <li>Per-stage breakdown charts across all 3 scenarios.</li>
         <li>Live OpenGL visualizer demo (with BVH boxes).</li>
-        <li>Sequential vs. OpenMP T=64 vs. CUDA comparison at N=50k and N=500k.</li>
+        <li>Graph: Sequential vs OpenMP vs CUDA </li>
       </ul>
 
       <hr />
@@ -191,7 +191,9 @@ export default function Milestone() {
         lower apparent speedup.
       </p>
 
-      <h3>Result on PSC (N=100,000)</h3>
+      <h3>Result on PSC (N=500,000)</h3>
+      <img src="/Parallel-DCD-Engine/webpage/public/n500k_1_speedup.png" />
+      <img src="/Parallel-DCD-Engine/webpage/public/n500k_3_stage_speedup_tc.png" />
       <p>
         Best speedup occurs in the two_cluster scene since GJK dominates the workload. The best-scaling
         stages are GJK and BVH traversal. The collapse at 128 cores happens because of inter-socket
@@ -230,11 +232,11 @@ export default function Milestone() {
         </tbody>
       </table>
       <p>
-        At N=500,000, CUDA v2 delivers 30–38× overall speedup on random_walk and avalanche. The
-        two_cluster scenario is limited to 16.5×. We suspect a buffer overflow: the broad-phase output
-        buffer (<code>max_broad</code> = N×32 = 16M) is exceeded by ~17.5M actual pairs, causing silent
-        truncation of ~1.5M pairs and L2 cache thrash from 16M random GJK accesses. We haven't profiled
-        it yet, and will verify and solve it in the next milestone.
+        At N=500,000, CUDA v2 delivers 30–38x overall speedup on random_walk and avalanche. 
+        The two_cluster scenario is limited to 16.5x. We suspected a buffer overflow: the broad-phase 
+        output buffer (max_broad = N×32 = 16M) is exceeded by ~17.5M actual pairs, so we assume it cause 
+        silent truncation of ∼1.5M pairs and L2 cache thrash from 16M random GJK accesses. We haven’t 
+        profiled it yet and we’ll verify and solve it later.
       </p>
 
     </div>
