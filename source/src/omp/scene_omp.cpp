@@ -117,7 +117,7 @@ std::vector<CollisionPair> Scene::detect_collisions_omp() {
 
     // 5. Broad phase: BVH traversal
     t.start();
-    bvh_traverse_omp(last_bvh, _broad_pairs);
+    bvh_traverse_omp(last_bvh, _broad_pairs, scenario == Scenario::TWO_CLUSTER);
     stage_times.traverse_ms = t.stop();
 
     // 6. Narrow phase: GJK on each candidate pair

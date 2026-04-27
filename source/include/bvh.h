@@ -37,4 +37,5 @@ void bvh_build_omp(BVH& bvh,
                    const std::vector<int>& sorted_indices,
                    const std::vector<AABB>& object_aabbs);
 void bvh_refit_omp(BVH& bvh, const std::vector<AABB>& object_aabbs);
-void bvh_traverse_omp(const BVH& bvh, std::vector<CollisionPair>& pairs);
+void bvh_traverse_omp(const BVH& bvh, std::vector<CollisionPair>& pairs,
+                      bool weighted_split = false);

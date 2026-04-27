@@ -19,6 +19,7 @@ void Scene::init(int n, Scenario scenario, float world_size) {
     _velocities.resize(n);
     _shape_types.resize(n);
     bounds = AABB({0, 0, 0}, {world_size, world_size, world_size});
+    this->scenario = scenario;
     dt = 0.016f;  // ~60fps
     frames_since_rebuild = 0;
 

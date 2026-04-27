@@ -206,13 +206,22 @@ static void dual_traverse_omp(const std::vector<BVHNode>& nodes,
     }
 }
 
-void bvh_traverse_omp(const BVH& bvh, std::vector<CollisionPair>& pairs) {
+void bvh_traverse_omp(const BVH& bvh, std::vector<CollisionPair>& pairs,
+                      bool weighted_split) {
     pairs.clear();
     if (bvh.nodes.empty()) return;
 
     int num_threads = omp_get_max_threads();
 
     struct Task { int a, b; };
+    std::vector<Task> pending = {{bvh.root, -1}};
+    std::vector<Task> tasks;
+    tasks.reserve(num_threads * (weighted_split ? 64 : 16));
+
+    const int TARGET = num_threads * (weighted_split ? 64 : 16);
+    const long long MAX_TASK_WEIGHT = 4096;
+    int head = 0;
+
     auto task_weight = [&](const Task& t) -> long long {
         if (t.b < 0) {
             long long leaves = bvh.nodes[t.a].leaf_count;
@@ -221,16 +230,13 @@ void bvh_traverse_omp(const BVH& bvh, std::vector<CollisionPair>& pairs) {
         return (long long)bvh.nodes[t.a].leaf_count * bvh.nodes[t.b].leaf_count;
     };
 
-    std::vector<Task> pending = {{bvh.root, -1}};
-    std::vector<Task> tasks;
-    tasks.reserve(num_threads * 64);
+    auto should_expand = [&]() {
+        if (head >= (int)pending.size()) return false;
+        if (!weighted_split) return (int)pending.size() < TARGET;
+        return (int)tasks.size() < TARGET || task_weight(pending[head]) > MAX_TASK_WEIGHT;
+    };
 
-    const int TARGET = num_threads * 64;
-    const long long MAX_TASK_WEIGHT = 4096;
-    int head = 0;
-
-    while (head < (int)pending.size() &&
-           ((int)tasks.size() < TARGET || task_weight(pending[head]) > MAX_TASK_WEIGHT)) {
+    while (should_expand()) {
         Task t = pending[head++];
 
         if (t.b < 0) {
@@ -250,10 +256,8 @@ void bvh_traverse_omp(const BVH& bvh, std::vector<CollisionPair>& pairs) {
             if (al) {
                 pending.push_back({t.a, bvh.nodes[t.b].left});
                 pending.push_back({t.a, bvh.nodes[t.b].right});
-            } else if (bl) {
-                pending.push_back({bvh.nodes[t.a].left,  t.b});
-                pending.push_back({bvh.nodes[t.a].right, t.b});
-            } else if (bvh.nodes[t.a].leaf_count >= bvh.nodes[t.b].leaf_count) {
+            } else if (!weighted_split || bl ||
+                       bvh.nodes[t.a].leaf_count >= bvh.nodes[t.b].leaf_count) {
                 pending.push_back({bvh.nodes[t.a].left,  t.b});
                 pending.push_back({bvh.nodes[t.a].right, t.b});
             } else {
@@ -262,7 +266,7 @@ void bvh_traverse_omp(const BVH& bvh, std::vector<CollisionPair>& pairs) {
             }
         }
 
-        while (head < (int)pending.size() && (int)tasks.size() < TARGET) {
+        while (weighted_split && head < (int)pending.size() && (int)tasks.size() < TARGET) {
             Task next = pending[head];
             if (task_weight(next) > MAX_TASK_WEIGHT) break;
             tasks.push_back(next);
