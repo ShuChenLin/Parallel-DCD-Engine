@@ -81,6 +81,7 @@ void bvh_build_seq(BVH& bvh,
         bvh.nodes[0].right = -1;
         bvh.nodes[0].parent = -1;
         bvh.nodes[0].object_idx = sorted_indices[0];
+        bvh.nodes[0].leaf_count = 1;
         bvh.root = 0;
         return;
     }
@@ -95,6 +96,7 @@ void bvh_build_seq(BVH& bvh,
         bvh.nodes[leaf].left = -1;
         bvh.nodes[leaf].right = -1;
         bvh.nodes[leaf].parent = -1;
+        bvh.nodes[leaf].leaf_count = 1;
     }
 
     // Build internal nodes using Karras algorithm
@@ -109,6 +111,7 @@ void bvh_build_seq(BVH& bvh,
         bvh.nodes[i].left = left_child;
         bvh.nodes[i].right = right_child;
         bvh.nodes[i].object_idx = -1;
+        bvh.nodes[i].leaf_count = 0;
         bvh.nodes[left_child].parent = i;
         bvh.nodes[right_child].parent = i;
     }
@@ -135,6 +138,8 @@ void bvh_refit_seq(BVH& bvh, const std::vector<AABB>& object_aabbs) {
         update(bvh.nodes[idx].right);
         bvh.nodes[idx].box = AABB::merge(bvh.nodes[bvh.nodes[idx].left].box,
                                           bvh.nodes[bvh.nodes[idx].right].box);
+        bvh.nodes[idx].leaf_count = bvh.nodes[bvh.nodes[idx].left].leaf_count +
+                                    bvh.nodes[bvh.nodes[idx].right].leaf_count;
     };
     update(bvh.root);
 }

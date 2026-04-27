@@ -82,6 +82,7 @@ void bvh_build_omp(BVH& bvh,
         bvh.nodes[0].right = -1;
         bvh.nodes[0].parent = -1;
         bvh.nodes[0].object_idx = sorted_indices[0];
+        bvh.nodes[0].leaf_count = 1;
         bvh.root = 0;
         return;
     }
@@ -97,6 +98,7 @@ void bvh_build_omp(BVH& bvh,
         bvh.nodes[leaf].left = -1;
         bvh.nodes[leaf].right = -1;
         bvh.nodes[leaf].parent = -1;
+        bvh.nodes[leaf].leaf_count = 1;
     }
 
     // Build internal nodes using Karras algorithm (parallel)
@@ -112,6 +114,7 @@ void bvh_build_omp(BVH& bvh,
         bvh.nodes[i].left = left_child;
         bvh.nodes[i].right = right_child;
         bvh.nodes[i].object_idx = -1;
+        bvh.nodes[i].leaf_count = 0;
         bvh.nodes[left_child].parent = i;
         bvh.nodes[right_child].parent = i;
     }
@@ -156,6 +159,9 @@ void bvh_refit_omp(BVH& bvh, const std::vector<AABB>& object_aabbs) {
             bvh.nodes[node].box = AABB::merge(
                 bvh.nodes[bvh.nodes[node].left].box,
                 bvh.nodes[bvh.nodes[node].right].box);
+            bvh.nodes[node].leaf_count =
+                bvh.nodes[bvh.nodes[node].left].leaf_count +
+                bvh.nodes[bvh.nodes[node].right].leaf_count;
             node = bvh.nodes[node].parent;
         }
     }
@@ -206,13 +212,25 @@ void bvh_traverse_omp(const BVH& bvh, std::vector<CollisionPair>& pairs) {
 
     int num_threads = omp_get_max_threads();
 
-    // Phase 1 (serial): BFS-expand until we have enough independent tasks.
     struct Task { int a, b; };
+    auto task_weight = [&](const Task& t) -> long long {
+        if (t.b < 0) {
+            long long leaves = bvh.nodes[t.a].leaf_count;
+            return leaves * leaves;
+        }
+        return (long long)bvh.nodes[t.a].leaf_count * bvh.nodes[t.b].leaf_count;
+    };
+
     std::vector<Task> pending = {{bvh.root, -1}};
-    const int TARGET = num_threads * 16;
+    std::vector<Task> tasks;
+    tasks.reserve(num_threads * 64);
+
+    const int TARGET = num_threads * 64;
+    const long long MAX_TASK_WEIGHT = 4096;
     int head = 0;
 
-    while (head < (int)pending.size() && (int)pending.size() < TARGET) {
+    while (head < (int)pending.size() &&
+           ((int)tasks.size() < TARGET || task_weight(pending[head]) > MAX_TASK_WEIGHT)) {
         Task t = pending[head++];
 
         if (t.b < 0) {
@@ -232,15 +250,27 @@ void bvh_traverse_omp(const BVH& bvh, std::vector<CollisionPair>& pairs) {
             if (al) {
                 pending.push_back({t.a, bvh.nodes[t.b].left});
                 pending.push_back({t.a, bvh.nodes[t.b].right});
-            } else {
+            } else if (bl) {
                 pending.push_back({bvh.nodes[t.a].left,  t.b});
                 pending.push_back({bvh.nodes[t.a].right, t.b});
+            } else if (bvh.nodes[t.a].leaf_count >= bvh.nodes[t.b].leaf_count) {
+                pending.push_back({bvh.nodes[t.a].left,  t.b});
+                pending.push_back({bvh.nodes[t.a].right, t.b});
+            } else {
+                pending.push_back({t.a, bvh.nodes[t.b].left});
+                pending.push_back({t.a, bvh.nodes[t.b].right});
             }
+        }
+
+        while (head < (int)pending.size() && (int)tasks.size() < TARGET) {
+            Task next = pending[head];
+            if (task_weight(next) > MAX_TASK_WEIGHT) break;
+            tasks.push_back(next);
+            head++;
         }
     }
 
-    // Phase 2 (parallel): process all unexpanded tasks.
-    std::vector<Task> tasks(pending.begin() + head, pending.end());
+    tasks.insert(tasks.end(), pending.begin() + head, pending.end());
     int ntasks = (int)tasks.size();
 
     std::vector<std::vector<CollisionPair>> thread_pairs(num_threads);

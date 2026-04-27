@@ -10,6 +10,7 @@ struct BVHNode {
     int right;       // right child index (internal) or -1
     int parent;
     int object_idx;  // >= 0 for leaves, -1 for internal nodes
+    int leaf_count;  // number of leaves under this node
 
     bool is_leaf() const { return object_idx >= 0; }
 };
