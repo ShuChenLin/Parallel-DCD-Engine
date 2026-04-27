@@ -528,6 +528,8 @@ static void download_positions(Scene& scene, const CUDAContext& ctx, int n) {
     for (int i = 0; i < n; i++) {
         scene.bodies[i].position = {h_pos[i].x, h_pos[i].y, h_pos[i].z};
         scene.bodies[i].velocity = {h_vel[i].x, h_vel[i].y, h_vel[i].z};
+        if ((int)scene._positions.size() == n) scene._positions[i] = scene.bodies[i].position;
+        if ((int)scene._velocities.size() == n) scene._velocities[i] = scene.bodies[i].velocity;
     }
 }
 

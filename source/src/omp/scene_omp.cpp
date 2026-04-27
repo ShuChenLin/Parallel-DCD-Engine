@@ -7,19 +7,33 @@
 
 void Scene::step_omp() {
     int n = static_cast<int>(bodies.size());
+    if ((int)_positions.size() != n) {
+        _positions.resize(n);
+        _velocities.resize(n);
+        _shape_types.assign(n, ShapeType::Cube);
+        for (int i = 0; i < n; i++) {
+            _positions[i] = bodies[i].position;
+            _velocities[i] = bodies[i].velocity;
+        }
+    }
     #pragma omp parallel for schedule(static)
     for (int i = 0; i < n; i++) {
-        auto& b = bodies[i];
-        b.position += b.velocity * dt;
+        Vec3 position = _positions[i] + _velocities[i] * dt;
+        Vec3 velocity = _velocities[i];
 
         for (int axis = 0; axis < 3; axis++) {
-            float* pos = &b.position.x + axis;
-            float* vel = &b.velocity.x + axis;
+            float* pos = &position.x + axis;
+            float* vel = &velocity.x + axis;
             float lo = (&bounds.lo.x)[axis];
             float hi = (&bounds.hi.x)[axis];
             if (*pos < lo) { *pos = lo + (lo - *pos); *vel = std::abs(*vel); }
             if (*pos > hi) { *pos = hi - (*pos - hi); *vel = -std::abs(*vel); }
         }
+
+        _positions[i] = position;
+        _velocities[i] = velocity;
+        bodies[i].position = position;
+        bodies[i].velocity = velocity;
     }
 }
 
@@ -30,15 +44,25 @@ std::vector<CollisionPair> Scene::detect_collisions_omp() {
     Timer t;
 
     // 1. Update AABBs and gather centroids (always needed)
+    if ((int)_positions.size() != n) {
+        _positions.resize(n);
+        _velocities.resize(n);
+        _shape_types.assign(n, ShapeType::Cube);
+        for (int i = 0; i < n; i++) {
+            _positions[i] = bodies[i].position;
+            _velocities[i] = bodies[i].velocity;
+        }
+    }
     _centroids.resize(n);
     _aabbs.resize(n);
     AABB scene_aabb;
     t.start();
     #pragma omp parallel for schedule(static)
     for (int i = 0; i < n; i++) {
-        bodies[i].update_aabb();
-        _centroids[i] = bodies[i].world_aabb.centroid();
-        _aabbs[i] = bodies[i].world_aabb;
+        AABB box = compute_shape_aabb(_shape_types[i], _positions[i]);
+        _centroids[i] = box.centroid();
+        _aabbs[i] = box;
+        bodies[i].world_aabb = box;
     }
     // Parallel AABB reduction
     {
@@ -109,7 +133,8 @@ std::vector<CollisionPair> Scene::detect_collisions_omp() {
             #pragma omp for schedule(dynamic, 64)
             for (int i = 0; i < np; i++) {
                 const auto& p = _broad_pairs[i];
-                if (gjk_intersect(bodies[p.a], bodies[p.b])) {
+                if (gjk_intersect_soa(_shape_types[p.a], _positions[p.a],
+                                      _shape_types[p.b], _positions[p.b])) {
                     thread_confirmed[tid].push_back(p);
                 }
             }

@@ -59,6 +59,9 @@ struct Scene {
     std::vector<CollisionPair> detect_collisions_bruteforce();
 
     // Scratch buffers (reused across frames)
+    std::vector<Vec3> _positions;
+    std::vector<Vec3> _velocities;
+    std::vector<ShapeType> _shape_types;
     std::vector<Vec3> _centroids;
     std::vector<AABB> _aabbs;
     std::vector<uint32_t> _codes;

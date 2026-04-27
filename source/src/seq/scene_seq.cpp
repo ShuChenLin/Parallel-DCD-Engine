@@ -18,6 +18,8 @@ void Scene::step() {
             if (*pos < lo) { *pos = lo + (lo - *pos); *vel = std::abs(*vel); }
             if (*pos > hi) { *pos = hi - (*pos - hi); *vel = -std::abs(*vel); }
         }
+        if ((int)_positions.size() == n) _positions[i] = b.position;
+        if ((int)_velocities.size() == n) _velocities[i] = b.velocity;
     }
 }
 

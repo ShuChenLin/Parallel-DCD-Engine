@@ -1,8 +1,16 @@
 #pragma once
 #include "vec3.h"
 #include "aabb.h"
+#include <cstdint>
 #include <vector>
 #include <cmath>
+
+enum class ShapeType : uint8_t {
+    Cube = 0,
+    Tetrahedron = 1,
+    Octahedron = 2,
+    Icosphere = 3
+};
 
 struct Shape {
     std::vector<Vec3> vertices;
@@ -78,3 +86,32 @@ struct Shape {
         return s;
     }
 };
+
+inline const std::vector<Vec3>& shape_vertices(ShapeType type) {
+    static const Shape cube = Shape::make_cube(0.5f);
+    static const Shape tetrahedron = Shape::make_tetrahedron(1.0f);
+    static const Shape octahedron = Shape::make_octahedron(0.5f);
+    static const Shape icosphere = Shape::make_icosphere(0.5f);
+
+    switch (type) {
+        case ShapeType::Cube:        return cube.vertices;
+        case ShapeType::Tetrahedron: return tetrahedron.vertices;
+        case ShapeType::Octahedron:  return octahedron.vertices;
+        case ShapeType::Icosphere:   return icosphere.vertices;
+    }
+    return cube.vertices;
+}
+
+inline Shape make_shape(ShapeType type) {
+    Shape s;
+    s.vertices = shape_vertices(type);
+    return s;
+}
+
+inline AABB compute_shape_aabb(ShapeType type, const Vec3& position) {
+    AABB box;
+    for (const auto& v : shape_vertices(type)) {
+        box.expand(v + position);
+    }
+    return box;
+}
