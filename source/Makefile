@@ -21,6 +21,7 @@ LDFLAGS  = $(OMP_LDFLAGS)
 GLFW_CFLAGS  = $(shell pkg-config --cflags glfw3 2>/dev/null)
 GLFW_LIBS    = $(shell pkg-config --libs glfw3 2>/dev/null)
 
+<<<<<<< Updated upstream
 # Shared sources (morton utilities, scene init/bruteforce)
 SHARED_SRC = src/morton.cpp src/scene_common.cpp
 
@@ -34,9 +35,15 @@ OMP_SRC = src/omp/bvh_omp.cpp src/omp/morton_omp.cpp src/omp/scene_omp.cpp
 SHARED_OBJ = $(SHARED_SRC:.cpp=.o)
 SEQ_OBJ    = $(SEQ_SRC:.cpp=.o)
 OMP_OBJ    = $(OMP_SRC:.cpp=.o)
+=======
+# Shared sources (init, bruteforce, GJK)
+COMMON_SRC = src/scene_common.cpp src/seq/gjk_seq.cpp
+>>>>>>> Stashed changes
 
-all: dcd_seq dcd_viz dcd_test
+# Sequential pipeline
+SEQ_SRC = src/seq/scene_seq.cpp src/seq/bvh_seq.cpp src/seq/morton_seq.cpp
 
+<<<<<<< Updated upstream
 # Sequential CLI
 dcd_seq: src/seq/main.o $(SHARED_OBJ) $(SEQ_OBJ)
 	$(CXX) $(CXXFLAGS) -o $@ $^
@@ -44,10 +51,26 @@ dcd_seq: src/seq/main.o $(SHARED_OBJ) $(SEQ_OBJ)
 # Visualizer (sequential)
 dcd_viz: src/renderer.o $(SHARED_OBJ) $(SEQ_OBJ)
 	$(CXX) $(CXXFLAGS) -o $@ $^ $(GLFW_LIBS) $(GL_LIBS)
+=======
+# OpenMP pipeline
+OMP_SRC = src/omp/scene_omp.cpp src/omp/bvh_omp.cpp src/omp/morton_omp.cpp
+
+ALL_SRC = $(COMMON_SRC) $(SEQ_SRC) $(OMP_SRC)
+ALL_OBJ = $(ALL_SRC:.cpp=.o)
+
+all: dcd
+
+dcd: src/main.o $(ALL_OBJ)
+	$(CXX) $(CXXFLAGS) -o $@ $^ $(LDFLAGS)
+
+dcd_viz: src/renderer.o $(ALL_OBJ)
+	$(CXX) $(CXXFLAGS) -o $@ $^ $(GLFW_LIBS) $(GL_LIBS) $(LDFLAGS)
+>>>>>>> Stashed changes
 
 src/renderer.o: src/renderer.cpp
 	$(CXX) $(CXXFLAGS) $(GLFW_CFLAGS) -c -o $@ $<
 
+<<<<<<< Updated upstream
 # OpenMP CLI (compile OMP sources with -fopenmp, link seq/gjk_seq for GJK)
 dcd_omp: src/omp/main_omp.o $(SHARED_OBJ) $(OMP_OBJ) src/seq/gjk_seq.o
 	$(CXX) $(CXXFLAGS) -o $@ $^ $(LDFLAGS)
@@ -62,6 +85,14 @@ src/omp/%.o: src/omp/%.cpp
 dcd_test: tests/test_all.o $(SHARED_OBJ) $(SEQ_OBJ)
 	$(CXX) $(CXXFLAGS) -o $@ $^
 
+=======
+dcd_test: tests/test_all.o $(ALL_OBJ)
+	$(CXX) $(CXXFLAGS) -o $@ $^ $(LDFLAGS)
+
+%.o: %.cpp
+	$(CXX) $(CXXFLAGS) -c -o $@ $<
+
+>>>>>>> Stashed changes
 test: dcd_test
 	./dcd_test
 
@@ -81,6 +112,10 @@ src/cuda/%.o: src/cuda/%.cu
 	$(NVCC) $(NVFLAGS) -c -o $@ $<
 
 clean:
+<<<<<<< Updated upstream
 	rm -f src/*.o src/seq/*.o src/omp/*.o src/cuda/*.o tests/*.o dcd_seq dcd_viz dcd_test dcd_omp dcd_cuda
+=======
+	rm -f src/*.o src/seq/*.o src/omp/*.o tests/*.o dcd dcd_viz dcd_test
+>>>>>>> Stashed changes
 
 .PHONY: all clean test

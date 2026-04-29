@@ -4,9 +4,35 @@
 #include <cstdlib>
 #include <cstring>
 
+<<<<<<< Updated upstream:source/src/seq/main.cpp
 static void run_scenario(Scenario scenario, int n, int frames, bool validate) {
     printf("\n=== Scenario: %s | N=%d | Frames=%d ===\n",
            scenario_name(scenario), n, frames);
+=======
+enum class Method { SEQ, OMP };
+
+static const char* scenario_name(Scenario s) {
+    switch (s) {
+        case Scenario::RANDOM_WALK: return "random_walk";
+        case Scenario::TWO_CLUSTER: return "two_cluster";
+        case Scenario::AVALANCHE:   return "avalanche";
+    }
+    return "unknown";
+}
+
+static const char* method_name(Method m) {
+    switch (m) {
+        case Method::SEQ: return "seq";
+        case Method::OMP: return "omp";
+    }
+    return "unknown";
+}
+
+static void run_scenario(Scenario scenario, Method method, int n, int frames,
+                         bool validate) {
+    printf("\n=== Scenario: %s | Method: %s | N=%d | Frames=%d ===\n",
+           scenario_name(scenario), method_name(method), n, frames);
+>>>>>>> Stashed changes:source/src/main.cpp
 
     Scene scene;
     scene.init(n, scenario);
@@ -14,16 +40,27 @@ static void run_scenario(Scenario scenario, int n, int frames, bool validate) {
     Timer t_total, t_step, t_detect;
     double total_step_ms = 0, total_detect_ms = 0;
     int total_collisions = 0;
+<<<<<<< Updated upstream:source/src/seq/main.cpp
     StageTimes acc_stages;
+=======
+    Scene::StageTimes acc_stages;
+>>>>>>> Stashed changes:source/src/main.cpp
 
     t_total.start("Total");
     for (int f = 0; f < frames; f++) {
         t_step.start("Step");
-        scene.step();
+        if (method == Method::OMP)
+            scene.step_omp();
+        else
+            scene.step();
         total_step_ms += t_step.stop();
 
-        t_detect.start("Detect (seq)");
-        auto collisions = scene.detect_collisions_seq();
+        t_detect.start("Detect");
+        std::vector<CollisionPair> collisions;
+        if (method == Method::OMP)
+            collisions = scene.detect_collisions_omp();
+        else
+            collisions = scene.detect_collisions_seq();
         total_detect_ms += t_detect.stop();
 
         acc_stages.aabb_ms     += scene.stage_times.aabb_ms;
@@ -37,14 +74,13 @@ static void run_scenario(Scenario scenario, int n, int frames, bool validate) {
 
         if (validate && f == 0) {
             auto bf = scene.detect_collisions_bruteforce();
-            // Sort both for comparison
             std::sort(collisions.begin(), collisions.end());
             std::sort(bf.begin(), bf.end());
             if (collisions == bf) {
-                printf("  [PASS] Frame %d: BVH matches brute-force (%zu collisions)\n",
+                printf("  [PASS] Frame %d: matches brute-force (%zu collisions)\n",
                        f, collisions.size());
             } else {
-                printf("  [FAIL] Frame %d: BVH=%zu vs brute-force=%zu collisions\n",
+                printf("  [FAIL] Frame %d: detected=%zu vs brute-force=%zu collisions\n",
                        f, collisions.size(), bf.size());
             }
         }
@@ -74,23 +110,41 @@ static void run_scenario(Scenario scenario, int n, int frames, bool validate) {
     printf("    GJK narrow:      %8.3f ms\n", acc_stages.gjk_ms      / frames);
 }
 
+static void print_usage(const char* prog) {
+    printf("Usage: %s [-n N] [-f frames] [-m seq|omp] [--no-validate]\n", prog);
+}
+
 int main(int argc, char** argv) {
     int n = 1000;
     int frames = 10;
     bool validate = true;
+    Method method = Method::SEQ;
 
     for (int i = 1; i < argc; i++) {
-        if (strcmp(argv[i], "-n") == 0 && i + 1 < argc) n = atoi(argv[++i]);
-        else if (strcmp(argv[i], "-f") == 0 && i + 1 < argc) frames = atoi(argv[++i]);
-        else if (strcmp(argv[i], "--no-validate") == 0) validate = false;
+        if (strcmp(argv[i], "-n") == 0 && i + 1 < argc) {
+            n = atoi(argv[++i]);
+        } else if (strcmp(argv[i], "-f") == 0 && i + 1 < argc) {
+            frames = atoi(argv[++i]);
+        } else if (strcmp(argv[i], "-m") == 0 && i + 1 < argc) {
+            i++;
+            if (strcmp(argv[i], "seq") == 0) method = Method::SEQ;
+            else if (strcmp(argv[i], "omp") == 0) method = Method::OMP;
+            else { print_usage(argv[0]); return 1; }
+        } else if (strcmp(argv[i], "--no-validate") == 0) {
+            validate = false;
+        } else {
+            print_usage(argv[0]);
+            return 1;
+        }
     }
 
-    printf("Parallel DCD Engine - Sequential Baseline\n");
-    printf("Objects: %d | Frames: %d | Validate: %s\n", n, frames, validate ? "yes" : "no");
+    printf("Parallel DCD Engine\n");
+    printf("Method: %s | Objects: %d | Frames: %d | Validate: %s\n",
+           method_name(method), n, frames, validate ? "yes" : "no");
 
-    run_scenario(Scenario::RANDOM_WALK, n, frames, validate);
-    run_scenario(Scenario::TWO_CLUSTER, n, frames, validate);
-    run_scenario(Scenario::AVALANCHE, n, frames, validate);
+    run_scenario(Scenario::RANDOM_WALK, method, n, frames, validate);
+    run_scenario(Scenario::TWO_CLUSTER, method, n, frames, validate);
+    run_scenario(Scenario::AVALANCHE,   method, n, frames, validate);
 
     return 0;
 }

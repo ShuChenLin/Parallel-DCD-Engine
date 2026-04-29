@@ -1,7 +1,59 @@
 #include "bvh.h"
 #include <algorithm>
+#include <cstdio>
+#include <cstdlib>
 #include <functional>
 #include <omp.h>
+
+struct TraverseThreadStats {
+    long long tasks = 0;
+    long long stack_visits = 0;
+    long long overlap_tests = 0;
+    long long leaf_pairs = 0;
+    long long emitted_pairs = 0;
+    double work_ms = 0.0;
+};
+
+static int load_balance_level() {
+    const char* env = std::getenv("DCD_LOAD_BALANCE");
+    return env ? std::atoi(env) : 0;
+}
+
+static void print_balance_summary(const char* label,
+                                  const std::vector<TraverseThreadStats>& stats,
+                                  long long TraverseThreadStats::*count_member,
+                                  double TraverseThreadStats::*time_member) {
+    long long min_count = 0, max_count = 0, sum_count = 0;
+    double min_ms = 0.0, max_ms = 0.0, sum_ms = 0.0;
+    bool initialized = false;
+
+    for (const auto& s : stats) {
+        long long count = s.*count_member;
+        double ms = s.*time_member;
+        if (!initialized) {
+            min_count = max_count = count;
+            min_ms = max_ms = ms;
+            initialized = true;
+        } else {
+            min_count = std::min(min_count, count);
+            max_count = std::max(max_count, count);
+            min_ms = std::min(min_ms, ms);
+            max_ms = std::max(max_ms, ms);
+        }
+        sum_count += count;
+        sum_ms += ms;
+    }
+
+    double avg_count = stats.empty() ? 0.0 : (double)sum_count / stats.size();
+    double avg_ms = stats.empty() ? 0.0 : sum_ms / stats.size();
+    double count_imbalance = avg_count > 0.0 ? max_count / avg_count : 0.0;
+    double time_imbalance = avg_ms > 0.0 ? max_ms / avg_ms : 0.0;
+
+    std::printf("    [load-balance] %s count min/avg/max=%lld/%.1f/%lld imbalance=%.2fx"
+                " | time min/avg/max=%.3f/%.3f/%.3f ms imbalance=%.2fx\n",
+                label, min_count, avg_count, max_count, count_imbalance,
+                min_ms, avg_ms, max_ms, time_imbalance);
+}
 
 static int clz(uint32_t x) {
     if (x == 0) return 32;
@@ -172,7 +224,8 @@ void bvh_refit_omp(BVH& bvh, const std::vector<AABB>& object_aabbs) {
 // b >= 0: cross(a, b)     — all pairs between subtrees a and b
 static void dual_traverse_omp(const std::vector<BVHNode>& nodes,
                                int a, int b,
-                               std::vector<CollisionPair>& out) {
+                               std::vector<CollisionPair>& out,
+                               TraverseThreadStats* stats = nullptr) {
     struct Frame { int a, b; };
     std::vector<Frame> stk;
     stk.reserve(64);
@@ -180,6 +233,7 @@ static void dual_traverse_omp(const std::vector<BVHNode>& nodes,
 
     while (!stk.empty()) {
         auto [na, nb] = stk.back(); stk.pop_back();
+        if (stats) stats->stack_visits++;
 
         if (nb < 0) {
             if (nodes[na].is_leaf()) continue;
@@ -187,12 +241,19 @@ static void dual_traverse_omp(const std::vector<BVHNode>& nodes,
             stk.push_back({nodes[na].right, -1});
             stk.push_back({nodes[na].left,  nodes[na].right});
         } else {
+            if (stats) stats->overlap_tests++;
             if (!AABB::overlaps(nodes[na].box, nodes[nb].box)) continue;
             bool al = nodes[na].is_leaf(), bl = nodes[nb].is_leaf();
             if (al && bl) {
+                if (stats) stats->leaf_pairs++;
                 int oa = nodes[na].object_idx, ob = nodes[nb].object_idx;
-                if (oa < ob) out.push_back({oa, ob});
-                else if (ob < oa) out.push_back({ob, oa});
+                if (oa < ob) {
+                    out.push_back({oa, ob});
+                    if (stats) stats->emitted_pairs++;
+                } else if (ob < oa) {
+                    out.push_back({ob, oa});
+                    if (stats) stats->emitted_pairs++;
+                }
                 continue;
             }
             if (al) {
@@ -278,13 +339,42 @@ void bvh_traverse_omp(const BVH& bvh, std::vector<CollisionPair>& pairs,
     int ntasks = (int)tasks.size();
 
     std::vector<std::vector<CollisionPair>> thread_pairs(num_threads);
+    int balance_level = load_balance_level();
+    std::vector<TraverseThreadStats> stats(balance_level ? num_threads : 0);
+
     #pragma omp parallel for schedule(dynamic, 1)
     for (int i = 0; i < ntasks; i++) {
         int tid = omp_get_thread_num();
-        dual_traverse_omp(bvh.nodes, tasks[i].a, tasks[i].b, thread_pairs[tid]);
+        double t0 = balance_level ? omp_get_wtime() : 0.0;
+        if (balance_level) stats[tid].tasks++;
+        dual_traverse_omp(bvh.nodes, tasks[i].a, tasks[i].b, thread_pairs[tid],
+                          balance_level ? &stats[tid] : nullptr);
+        if (balance_level) stats[tid].work_ms += (omp_get_wtime() - t0) * 1000.0;
     }
 
     for (int t = 0; t < num_threads; t++) {
         pairs.insert(pairs.end(), thread_pairs[t].begin(), thread_pairs[t].end());
+    }
+
+    if (balance_level) {
+        std::printf("    [load-balance] BVH traverse tasks=%d output_pairs=%zu weighted=%s\n",
+                    ntasks, pairs.size(), weighted_split ? "yes" : "no");
+        print_balance_summary("traverse stack_visits", stats,
+                              &TraverseThreadStats::stack_visits,
+                              &TraverseThreadStats::work_ms);
+        print_balance_summary("traverse emitted_pairs", stats,
+                              &TraverseThreadStats::emitted_pairs,
+                              &TraverseThreadStats::work_ms);
+
+        if (balance_level >= 2) {
+            std::printf("    [load-balance] BVH per-thread: tid tasks visits overlap leaf emitted work_ms\n");
+            for (int t = 0; t < num_threads; t++) {
+                std::printf("    [load-balance] BVH tid=%d tasks=%lld visits=%lld overlap=%lld"
+                            " leaf=%lld emitted=%lld work_ms=%.3f\n",
+                            t, stats[t].tasks, stats[t].stack_visits,
+                            stats[t].overlap_tests, stats[t].leaf_pairs,
+                            stats[t].emitted_pairs, stats[t].work_ms);
+            }
+        }
     }
 }
