@@ -29,27 +29,11 @@ struct Scene {
     float dt = 0.016f;
     BVH last_bvh;  // BVH from last detection (for visualization)
 
-<<<<<<< Updated upstream
     // Timing and rebuild control
     StageTimes stage_times;
     int frames_since_rebuild = 0;
     int rebuild_interval = 5;
     Scenario scenario = Scenario::RANDOM_WALK;
-=======
-    // Refit-not-rebuild: skip morton+sort+build on most frames
-    int rebuild_interval = 5;   // full rebuild every N frames
-    int frames_since_rebuild = 0;
-
-    // Per-stage timing from last detection call
-    struct StageTimes {
-        double aabb_ms    = 0;
-        double morton_ms  = 0;
-        double sort_ms    = 0;
-        double build_ms   = 0;
-        double traverse_ms= 0;
-        double gjk_ms     = 0;
-    } stage_times;
->>>>>>> Stashed changes
 
     // Initialize a scene with n bodies of a given scenario
     void init(int n, Scenario scenario, float world_size = 100.0f);
@@ -60,7 +44,6 @@ struct Scene {
     // Advance one time step (OpenMP)
     void step_omp();
 
-<<<<<<< Updated upstream
     // Full collision detection pipeline (sequential)
     std::vector<CollisionPair> detect_collisions_seq();
 
@@ -73,14 +56,6 @@ struct Scene {
     // Full collision detection pipeline (CUDA)
     std::vector<CollisionPair> detect_collisions_cuda();
 
-=======
-    // Sequential collision detection pipeline
-    std::vector<CollisionPair> detect_collisions_seq();
-
-    // OpenMP collision detection pipeline (with refit-not-rebuild)
-    std::vector<CollisionPair> detect_collisions_omp();
-
->>>>>>> Stashed changes
     // Brute-force O(N^2) for correctness validation
     std::vector<CollisionPair> detect_collisions_bruteforce();
 
