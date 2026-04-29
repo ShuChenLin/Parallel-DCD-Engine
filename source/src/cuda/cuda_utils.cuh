@@ -16,7 +16,7 @@
 #define MAX_VERTS 12
 #define TRAVERSE_STACK_SIZE 64
 #define BLOCK_SIZE 256
-#define GJK_BLOCK_SIZE 128   // reduced block size so smem fits: 128*24*12 = 36KB < 48KB
+#define GJK_BLOCK_SIZE 32    // 32*24*12 = 9KB → 7 blocks/SM → 7 warps → 21.9% occupancy
 
 /* ---- float3 helpers ---- */
 
@@ -129,11 +129,11 @@ struct CUDAContext {
         if (n > 1) CUDA_CHECK(cudaMalloc(&d_flags, (n - 1) * sizeof(int)));
         else d_flags = nullptr;
 
-        max_broad = n * 64;
+        max_broad = n * 128;
         CUDA_CHECK(cudaMalloc(&d_broad_pairs, max_broad * sizeof(int2)));
         CUDA_CHECK(cudaMalloc(&d_broad_count, sizeof(int)));
 
-        max_narrow = n * 64;
+        max_narrow = n * 128;
         CUDA_CHECK(cudaMalloc(&d_narrow_pairs, max_narrow * sizeof(int2)));
         CUDA_CHECK(cudaMalloc(&d_narrow_count, sizeof(int)));
         CUDA_CHECK(cudaMallocHost(&h_narrow_pinned, max_narrow * sizeof(int2)));

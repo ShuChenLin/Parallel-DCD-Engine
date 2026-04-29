@@ -314,7 +314,7 @@ __global__ void traverse_kernel(
    4. GJK narrow-phase kernel
    ================================================================ */
 
-/* Support function reading from shared memory (world-space vertices pre-loaded) */
+/* Support function reading world-space vertices from shared memory */
 __device__ float3 gjk_support_smem(
     const float3* __restrict__ va, int na,
     const float3* __restrict__ vb, int nb,
@@ -421,7 +421,7 @@ __device__ void simplex_push_front(float3 pts[4], int& cnt, float3 p) {
     if (cnt < 4) cnt++;
 }
 
-/* GJK using pre-loaded world-space vertices from shared memory */
+/* GJK using world-space vertices pre-loaded into shared memory */
 __device__ bool gjk_intersect_dev(
     const float3* va, int na, float3 pos_a,
     const float3* vb, int nb, float3 pos_b)
@@ -455,9 +455,6 @@ __global__ void gjk_kernel(
     int*          __restrict__ out_count,
     int           max_out)
 {
-    /* shared memory: world-space vertices for each thread's pair
-       layout: smem_a[tid][j], smem_b[tid][j]
-       size: GJK_BLOCK_SIZE * 2 * MAX_VERTS * sizeof(float3) = 128*2*12*12 = 36KB */
     __shared__ float3 smem_a[GJK_BLOCK_SIZE][MAX_VERTS];
     __shared__ float3 smem_b[GJK_BLOCK_SIZE][MAX_VERTS];
 
@@ -472,8 +469,6 @@ __global__ void gjk_kernel(
     int    na     = vcnt[body_a];
     int    nb     = vcnt[body_b];
 
-    /* Prefetch vertices into shared memory (world-space = pos + local_vertex).
-       Each thread only loads its own smem_a[tid] and smem_b[tid] — no syncthreads needed. */
     const float3* va = verts + (size_t)body_a * MAX_VERTS;
     const float3* vb = verts + (size_t)body_b * MAX_VERTS;
     for (int j = 0; j < na; j++) smem_a[tid][j] = pos_a + va[j];
