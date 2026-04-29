@@ -16,6 +16,7 @@
 #define MAX_VERTS 12
 #define TRAVERSE_STACK_SIZE 64
 #define BLOCK_SIZE 256
+#define GJK_BLOCK_SIZE 128   // reduced block size so smem fits: 128*24*12 = 36KB < 48KB
 
 /* ---- float3 helpers ---- */
 
@@ -68,7 +69,7 @@ inline __device__ bool gnode_overlaps(const GBVHNode& a, const GBVHNode& b) {
 struct CUDAContext {
     float3*   d_positions;
     float3*   d_velocities;
-    float3*   d_vertices;       // [n * MAX_VERTS]
+    float3*   d_vertices;       // AoS: [body * MAX_VERTS + j]
     int*      d_vert_counts;
     float3*   d_aabb_lo;
     float3*   d_aabb_hi;
@@ -93,12 +94,14 @@ struct CUDAContext {
     int*      d_narrow_count;   // [1]
     int       max_narrow;
 
+    int2*     h_narrow_pinned;  // pinned host buffer for pair download (avoids staging copy)
+
     int*      d_overflow;       // [1]
 
     int  allocated_n;
     bool shapes_uploaded;   // vertices + vert_counts uploaded once per scene init
 
-    CUDAContext() : allocated_n(0), shapes_uploaded(false) {}
+    CUDAContext() : allocated_n(0), shapes_uploaded(false), h_narrow_pinned(nullptr) {}
 
     void ensure(int n) {
         if (n <= allocated_n) return;
@@ -107,7 +110,7 @@ struct CUDAContext {
 
         CUDA_CHECK(cudaMalloc(&d_positions,   n * sizeof(float3)));
         CUDA_CHECK(cudaMalloc(&d_velocities,  n * sizeof(float3)));
-        CUDA_CHECK(cudaMalloc(&d_vertices,    (size_t)n * MAX_VERTS * sizeof(float3)));
+        CUDA_CHECK(cudaMalloc(&d_vertices,    (size_t)MAX_VERTS * n * sizeof(float3)));
         CUDA_CHECK(cudaMalloc(&d_vert_counts, n * sizeof(int)));
         CUDA_CHECK(cudaMalloc(&d_aabb_lo,     n * sizeof(float3)));
         CUDA_CHECK(cudaMalloc(&d_aabb_hi,     n * sizeof(float3)));
@@ -126,13 +129,14 @@ struct CUDAContext {
         if (n > 1) CUDA_CHECK(cudaMalloc(&d_flags, (n - 1) * sizeof(int)));
         else d_flags = nullptr;
 
-        max_broad = n * 32;
+        max_broad = n * 64;
         CUDA_CHECK(cudaMalloc(&d_broad_pairs, max_broad * sizeof(int2)));
         CUDA_CHECK(cudaMalloc(&d_broad_count, sizeof(int)));
 
-        max_narrow = n * 32;
+        max_narrow = n * 64;
         CUDA_CHECK(cudaMalloc(&d_narrow_pairs, max_narrow * sizeof(int2)));
         CUDA_CHECK(cudaMalloc(&d_narrow_count, sizeof(int)));
+        CUDA_CHECK(cudaMallocHost(&h_narrow_pinned, max_narrow * sizeof(int2)));
 
         CUDA_CHECK(cudaMalloc(&d_overflow, sizeof(int)));
     }
@@ -149,6 +153,7 @@ struct CUDAContext {
         cudaFree(d_nodes);      cudaFree(d_flags);
         cudaFree(d_broad_pairs); cudaFree(d_broad_count);
         cudaFree(d_narrow_pairs); cudaFree(d_narrow_count);
+        cudaFreeHost(h_narrow_pinned);
         cudaFree(d_overflow);
         allocated_n = 0;
     }

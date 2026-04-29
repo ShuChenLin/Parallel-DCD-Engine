@@ -4,7 +4,20 @@
 #include "collision.h"
 #include <vector>
 #include <string>
+#include <cstddef>
 #include "timer.h"
+
+template<typename T>
+struct Span {
+    T* _ptr; int _n;
+    Span() : _ptr(nullptr), _n(0) {}
+    Span(T* p, int n) : _ptr(p), _n(n) {}
+    T* begin() const { return _ptr; }
+    T* end()   const { return _ptr + _n; }
+    int  size()  const { return _n; }
+    bool empty() const { return _n == 0; }
+    T& operator[](int i) const { return _ptr[i]; }
+};
 
 enum class Scenario {
     RANDOM_WALK,
@@ -53,7 +66,7 @@ struct Scene {
     void step_cuda();
 
     // Full collision detection pipeline (CUDA)
-    std::vector<CollisionPair> detect_collisions_cuda();
+    Span<CollisionPair> detect_collisions_cuda();
 
     // Brute-force O(N^2) for correctness validation
     std::vector<CollisionPair> detect_collisions_bruteforce();
