@@ -1,3 +1,12 @@
+/**
+ * @file scene_omp.cpp
+ * @brief OpenMP scene stepping and collision-detection pipeline.
+ *
+ * This file contains the parallel scene update path, the OpenMP collision
+ * detection pipeline, and optional per-thread load-balance instrumentation for
+ * the GJK narrow phase.
+ */
+
 #include "scene.h"
 #include "morton.h"
 #include "bvh.h"
@@ -14,11 +23,23 @@ struct GjkThreadStats {
     double work_ms = 0.0;
 };
 
+/**
+ * @brief Reads the load-balance instrumentation level from the environment.
+ *
+ * DCD_LOAD_BALANCE=0 disables instrumentation, while larger values enable
+ * progressively more detailed per-thread reporting.
+ */
 static int scene_load_balance_level() {
     const char* env = std::getenv("DCD_LOAD_BALANCE");
     return env ? std::atoi(env) : 0;
 }
 
+/**
+ * @brief Prints a compact per-thread load-balance summary for GJK work.
+ *
+ * The summary reports min/avg/max call count, confirmed collision count, and
+ * wall-clock work time across OpenMP threads.
+ */
 static void print_gjk_balance(const std::vector<GjkThreadStats>& stats) {
     long long min_calls = 0, max_calls = 0, sum_calls = 0;
     long long min_confirmed = 0, max_confirmed = 0, sum_confirmed = 0;
@@ -58,6 +79,12 @@ static void print_gjk_balance(const std::vector<GjkThreadStats>& stats) {
                 min_ms, avg_ms, max_ms, time_imbalance);
 }
 
+/**
+ * @brief Advances all bodies by one time step using OpenMP.
+ *
+ * Each body is updated independently and reflected against the world bounds.
+ * The SoA scratch arrays and the Body objects are both kept in sync.
+ */
 void Scene::step_omp() {
     int n = static_cast<int>(bodies.size());
     if ((int)_positions.size() != n) {
@@ -90,6 +117,13 @@ void Scene::step_omp() {
     }
 }
 
+/**
+ * @brief Runs the full OpenMP collision-detection pipeline for one frame.
+ *
+ * The pipeline updates per-object AABBs, optionally rebuilds or refits the
+ * BVH, traverses the broad phase, and confirms collisions with parallel GJK.
+ * Stage timings are recorded in scene.stage_times for later reporting.
+ */
 std::vector<CollisionPair> Scene::detect_collisions_omp() {
     int n = static_cast<int>(bodies.size());
     if (n == 0) return {};

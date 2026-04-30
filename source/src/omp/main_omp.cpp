@@ -1,3 +1,11 @@
+/**
+ * @file main_omp.cpp
+ * @brief Command-line driver for the OpenMP collision-detection engine.
+ *
+ * This file parses runtime options, executes each benchmark scenario, and
+ * prints per-frame and per-stage timing summaries for the OpenMP path.
+ */
+
 #include "scene.h"
 #include "timer.h"
 #include <cstdio>
@@ -5,6 +13,13 @@
 #include <cstring>
 #include <omp.h>
 
+/**
+ * @brief Runs one benchmark scenario and prints timing and collision totals.
+ *
+ * The function steps the scene, launches collision detection for each frame,
+ * optionally validates the first frame against brute force, and accumulates
+ * per-stage timing statistics for the final summary.
+ */
 static void run_scenario(Scenario scenario, int n, int frames, bool validate) {
     printf("\n=== Scenario: %s | N=%d | Frames=%d | Threads=%d ===\n",
            scenario_name(scenario), n, frames, omp_get_max_threads());
@@ -74,6 +89,15 @@ static void run_scenario(Scenario scenario, int n, int frames, bool validate) {
     printf("    GJK narrow:      %8.3f ms\n", acc_stages.gjk_ms      / frames);
 }
 
+/**
+ * @brief Entry point for the OpenMP benchmark executable.
+ *
+ * Supported flags:
+ * - -n <objects>
+ * - -f <frames>
+ * - -t <threads>
+ * - --no-validate
+ */
 int main(int argc, char** argv) {
     int n = 1000;
     int frames = 10;

@@ -1,9 +1,23 @@
+/**
+ * @file morton_omp.cpp
+ * @brief OpenMP Morton-code generation and parallel radix sort.
+ *
+ * This file contains the OpenMP implementations of centroid-to-Morton-code
+ * conversion and the four-pass radix sort used before parallel BVH build.
+ */
+
 #include "morton.h"
 #include <algorithm>
 #include <numeric>
 #include <cstring>
 #include <omp.h>
 
+/**
+ * @brief Computes Morton codes for all centroids in parallel.
+ *
+ * Centroids are normalized with respect to the scene bounds and then encoded
+ * into 30-bit Morton codes for spatial sorting.
+ */
 void compute_morton_codes_omp(const std::vector<Vec3>& centroids,
                               const AABB& scene_bounds,
                               std::vector<uint32_t>& codes) {
@@ -23,7 +37,13 @@ void compute_morton_codes_omp(const std::vector<Vec3>& centroids,
     }
 }
 
-// 8-bit parallel radix sort (4 passes over 32-bit keys)
+/**
+ * @brief Sorts object indices by Morton code using a parallel radix sort.
+ *
+ * The implementation uses four 8-bit passes. Each pass builds per-thread
+ * histograms, computes bucket offsets, and scatters indices into a temporary
+ * buffer before swapping the source and destination arrays.
+ */
 void radix_sort_omp(const std::vector<uint32_t>& codes,
                     std::vector<int>& sorted_indices,
                     std::vector<uint32_t>& sorted_codes) {

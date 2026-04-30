@@ -1,3 +1,12 @@
+/**
+ * @file bvh_omp.cpp
+ * @brief OpenMP BVH construction, refit, and broad-phase traversal.
+ *
+ * This file implements the parallel LBVH build, bottom-up refit, dual
+ * traversal, and optional traversal load-balance instrumentation used by the
+ * OpenMP collision-detection path.
+ */
+
 #include "bvh.h"
 #include <algorithm>
 #include <cstdio>
@@ -14,11 +23,23 @@ struct TraverseThreadStats {
     double work_ms = 0.0;
 };
 
+/**
+ * @brief Reads the traversal load-balance instrumentation level.
+ *
+ * The level is controlled through DCD_LOAD_BALANCE and enables summary or
+ * detailed per-thread reporting for broad-phase traversal.
+ */
 static int load_balance_level() {
     const char* env = std::getenv("DCD_LOAD_BALANCE");
     return env ? std::atoi(env) : 0;
 }
 
+/**
+ * @brief Prints min/avg/max imbalance statistics for a traversal counter.
+ *
+ * This helper is used to summarize traversal work counts and the associated
+ * per-thread execution time after the parallel broad phase completes.
+ */
 static void print_balance_summary(const char* label,
                                   const std::vector<TraverseThreadStats>& stats,
                                   long long TraverseThreadStats::*count_member,
@@ -55,11 +76,20 @@ static void print_balance_summary(const char* label,
                 min_ms, avg_ms, max_ms, time_imbalance);
 }
 
+/**
+ * @brief Returns the number of leading zero bits in a 32-bit integer.
+ */
 static int clz(uint32_t x) {
     if (x == 0) return 32;
     return __builtin_clz(x);
 }
 
+/**
+ * @brief Computes the Karras delta metric between two Morton-code positions.
+ *
+ * The delta is the common-prefix length used by LBVH range determination.
+ * When the Morton codes are identical, the object indices break the tie.
+ */
 static int bvh_delta(const std::vector<uint32_t>& codes, int num_objects,
                      int i, int j) {
     if (j < 0 || j >= num_objects) return -1;
@@ -68,6 +98,12 @@ static int bvh_delta(const std::vector<uint32_t>& codes, int num_objects,
     return clz(codes[i] ^ codes[j]);
 }
 
+/**
+ * @brief Determines the object range covered by internal node i.
+ *
+ * This follows the LBVH construction method from Karras by expanding in the
+ * dominant direction until the longest valid Morton-code range is found.
+ */
 static void determine_range(const std::vector<uint32_t>& codes, int num_objects,
                              int i, int& out_left, int& out_right) {
     int d_left = bvh_delta(codes, num_objects, i, i - 1);
@@ -92,6 +128,12 @@ static void determine_range(const std::vector<uint32_t>& codes, int num_objects,
     out_right = std::max(i, j);
 }
 
+/**
+ * @brief Finds the split point for a Morton-code range.
+ *
+ * The split separates a node's range into its left and right child ranges
+ * based on the shared Morton-code prefix.
+ */
 static int find_split(const std::vector<uint32_t>& codes,
                       int left, int right) {
     uint32_t first_code = codes[left];
@@ -119,6 +161,13 @@ static int find_split(const std::vector<uint32_t>& codes,
     return split;
 }
 
+/**
+ * @brief Builds an LBVH in parallel from sorted Morton codes and AABBs.
+ *
+ * Leaf nodes are initialized from the sorted object order, internal topology
+ * is generated independently per node, and the final node bounds are filled by
+ * the parallel refit pass.
+ */
 void bvh_build_omp(BVH& bvh,
                    const std::vector<uint32_t>& sorted_codes,
                    const std::vector<int>& sorted_indices,
@@ -177,9 +226,13 @@ void bvh_build_omp(BVH& bvh,
     bvh_refit_omp(bvh, object_aabbs);
 }
 
-// Parallel bottom-up refit using atomic propagation.
-// Each leaf signals its parent; the second thread to arrive at an internal node
-// merges both children's AABBs and propagates upward.
+/**
+ * @brief Refits BVH node bounds in parallel using atomic bottom-up propagation.
+ *
+ * Each leaf updates its own bounding box and walks toward the root. The first
+ * child to reach an internal node exits, while the second merges both children
+ * and continues the upward propagation.
+ */
 void bvh_refit_omp(BVH& bvh, const std::vector<AABB>& object_aabbs) {
     if (bvh.nodes.empty()) return;
     int n = bvh.num_objects;
@@ -219,9 +272,12 @@ void bvh_refit_omp(BVH& bvh, const std::vector<AABB>& object_aabbs) {
     }
 }
 
-// Iterative dual traversal (used per-task in parallel phase).
-// b < 0: self_traverse(a) — all pairs within subtree a
-// b >= 0: cross(a, b)     — all pairs between subtrees a and b
+/**
+ * @brief Traverses one BVH task iteratively and emits overlapping leaf pairs.
+ *
+ * When b < 0 the task performs self-traversal within subtree a; otherwise it
+ * performs cross traversal between subtrees a and b.
+ */
 static void dual_traverse_omp(const std::vector<BVHNode>& nodes,
                                int a, int b,
                                std::vector<CollisionPair>& out,
@@ -267,6 +323,13 @@ static void dual_traverse_omp(const std::vector<BVHNode>& nodes,
     }
 }
 
+/**
+ * @brief Runs the OpenMP broad phase with task-based dual BVH traversal.
+ *
+ * The traversal first expands the root into a frontier of subtree-pair tasks,
+ * optionally applies extra weighted splitting for dense scenes, and then
+ * processes those tasks in parallel to produce candidate collision pairs.
+ */
 void bvh_traverse_omp(const BVH& bvh, std::vector<CollisionPair>& pairs,
                       bool weighted_split) {
     pairs.clear();
