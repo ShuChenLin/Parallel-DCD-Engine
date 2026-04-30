@@ -1,9 +1,17 @@
+/**
+ * @file scene_seq.cpp
+ * @brief Sequential scene stepping and collision pipeline.
+ */
+
 #include "scene.h"
 #include "morton.h"
 #include "bvh.h"
 #include "gjk.h"
 #include "timer.h"
 
+/**
+ * @brief Advances all bodies by one frame on the CPU.
+ */
 void Scene::step() {
     int n = static_cast<int>(bodies.size());
     for (int i = 0; i < n; i++) {
@@ -23,6 +31,9 @@ void Scene::step() {
     }
 }
 
+/**
+ * @brief Runs the sequential collision-detection pipeline.
+ */
 std::vector<CollisionPair> Scene::detect_collisions_seq() {
     int n = static_cast<int>(bodies.size());
     if (n == 0) return {};

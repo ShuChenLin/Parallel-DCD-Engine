@@ -1,8 +1,15 @@
+/**
+ * @file gjk_seq.cpp
+ * @brief Sequential GJK collision tests.
+ */
+
 #include "gjk.h"
 #include <array>
 #include <cmath>
 
-// Minkowski difference support function
+/**
+ * @brief Support point of the Minkowski difference for two bodies.
+ */
 static Vec3 support(const Body& a, const Body& b, const Vec3& d) {
     Vec3 sa = a.position;
     {
@@ -26,6 +33,9 @@ static Vec3 support(const Body& a, const Body& b, const Vec3& d) {
     return sa - sb;
 }
 
+/**
+ * @brief Support point used by the SoA GJK path.
+ */
 static Vec3 support_soa(ShapeType a_type, const Vec3& a_position,
                         ShapeType b_type, const Vec3& b_position,
                         const Vec3& d) {
@@ -51,6 +61,9 @@ static Vec3 support_soa(ShapeType a_type, const Vec3& a_position,
     return sa - sb;
 }
 
+/**
+ * @brief Small simplex container used by GJK.
+ */
 struct Simplex {
     std::array<Vec3, 4> pts;
     int count = 0;
@@ -65,6 +78,9 @@ struct Simplex {
     }
 };
 
+/**
+ * @brief Handles the line simplex case in GJK.
+ */
 static bool do_line(Simplex& s, Vec3& dir) {
     Vec3 a = s.pts[0], b = s.pts[1];
     Vec3 ab = b - a;
@@ -85,6 +101,9 @@ static bool do_line(Simplex& s, Vec3& dir) {
     return false;
 }
 
+/**
+ * @brief Handles the triangle simplex case in GJK.
+ */
 static bool do_triangle(Simplex& s, Vec3& dir) {
     Vec3 a = s.pts[0], b = s.pts[1], c = s.pts[2];
     Vec3 ab = b - a, ac = c - a, ao = -a;
@@ -114,6 +133,9 @@ static bool do_triangle(Simplex& s, Vec3& dir) {
     return false;
 }
 
+/**
+ * @brief Handles the tetrahedron simplex case in GJK.
+ */
 static bool do_tetrahedron(Simplex& s, Vec3& dir) {
     Vec3 a = s.pts[0], b = s.pts[1], c = s.pts[2], d = s.pts[3];
     Vec3 ab = b - a, ac = c - a, ad = d - a, ao = -a;
@@ -138,6 +160,9 @@ static bool do_tetrahedron(Simplex& s, Vec3& dir) {
     return true;
 }
 
+/**
+ * @brief Dispatches simplex handling based on simplex size.
+ */
 static bool do_simplex(Simplex& s, Vec3& dir) {
     switch (s.count) {
         case 2: return do_line(s, dir);
@@ -147,6 +172,9 @@ static bool do_simplex(Simplex& s, Vec3& dir) {
     return false;
 }
 
+/**
+ * @brief Runs the standard body-based GJK intersection test.
+ */
 bool gjk_intersect(const Body& a, const Body& b) {
     Vec3 dir = b.position - a.position;
     if (dir.length2() < 1e-10f) dir = {1, 0, 0};
@@ -177,6 +205,9 @@ bool gjk_intersect(const Body& a, const Body& b) {
     return false;
 }
 
+/**
+ * @brief Runs the SoA-based GJK intersection test.
+ */
 bool gjk_intersect_soa(ShapeType a_type, const Vec3& a_position,
                        ShapeType b_type, const Vec3& b_position) {
     Vec3 dir = b_position - a_position;

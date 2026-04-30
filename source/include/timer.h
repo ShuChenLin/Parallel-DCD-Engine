@@ -1,8 +1,16 @@
+/**
+ * @file timer.h
+ * @brief Small wall-clock timer used for stage timing.
+ */
+
 #pragma once
 #include <chrono>
 #include <string>
 #include <cstdio>
 
+/**
+ * @brief Simple helper for measuring elapsed time in milliseconds.
+ */
 struct Timer {
     using Clock = std::chrono::high_resolution_clock;
     Clock::time_point start_time;

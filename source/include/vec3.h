@@ -1,7 +1,15 @@
+/**
+ * @file vec3.h
+ * @brief Simple 3D vector math helpers.
+ */
+
 #pragma once
 #include <cmath>
 #include <algorithm>
 
+/**
+ * @brief Small 3D vector used across the engine.
+ */
 struct Vec3 {
     float x, y, z;
 
@@ -40,4 +48,7 @@ struct Vec3 {
     }
 };
 
+/**
+ * @brief Scales a vector from the left.
+ */
 inline Vec3 operator*(float s, const Vec3& v) { return v * s; }

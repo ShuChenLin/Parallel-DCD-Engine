@@ -1,3 +1,8 @@
+/**
+ * @file main_cuda.cu
+ * @brief Command-line driver for the CUDA benchmark.
+ */
+
 #include "scene.h"
 #include "timer.h"
 #include <cstdio>
@@ -6,6 +11,9 @@
 #include <algorithm>
 #include <cuda_runtime.h>
 
+/**
+ * @brief Runs one CUDA benchmark scenario and prints timing results.
+ */
 static void run_scenario(Scenario scenario, int n, int frames, bool validate) {
     printf("\n=== Scenario: %s | N=%d | Frames=%d | CUDA ===\n",
            scenario_name(scenario), n, frames);
@@ -62,6 +70,9 @@ static void run_scenario(Scenario scenario, int n, int frames, bool validate) {
     printf("  Total collisions:  %d (across %d frames)\n", total_collisions, frames);
 }
 
+/**
+ * @brief Entry point for the CUDA benchmark executable.
+ */
 int main(int argc, char** argv) {
     int n = 1000;
     int frames = 10;

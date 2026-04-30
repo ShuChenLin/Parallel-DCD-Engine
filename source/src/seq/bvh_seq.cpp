@@ -1,12 +1,23 @@
+/**
+ * @file bvh_seq.cpp
+ * @brief Sequential BVH build, refit, and traversal.
+ */
+
 #include "bvh.h"
 #include <algorithm>
 #include <functional>
 
+/**
+ * @brief Returns the number of leading zero bits.
+ */
 static int clz(uint32_t x) {
     if (x == 0) return 32;
     return __builtin_clz(x);
 }
 
+/**
+ * @brief Computes the LBVH delta value for two Morton-code positions.
+ */
 static int bvh_delta(const std::vector<uint32_t>& codes, int num_objects,
                      int i, int j) {
     if (j < 0 || j >= num_objects) return -1;
@@ -15,6 +26,9 @@ static int bvh_delta(const std::vector<uint32_t>& codes, int num_objects,
     return clz(codes[i] ^ codes[j]);
 }
 
+/**
+ * @brief Finds the Morton-code range covered by one internal node.
+ */
 static void determine_range(const std::vector<uint32_t>& codes, int num_objects,
                              int i, int& out_left, int& out_right) {
     int d_left = bvh_delta(codes, num_objects, i, i - 1);
@@ -39,6 +53,9 @@ static void determine_range(const std::vector<uint32_t>& codes, int num_objects,
     out_right = std::max(i, j);
 }
 
+/**
+ * @brief Finds the split point inside one Morton-code range.
+ */
 static int find_split(const std::vector<uint32_t>& codes,
                       int left, int right) {
     uint32_t first_code = codes[left];
@@ -66,6 +83,9 @@ static int find_split(const std::vector<uint32_t>& codes,
     return split;
 }
 
+/**
+ * @brief Builds the sequential LBVH from sorted Morton codes.
+ */
 void bvh_build_seq(BVH& bvh,
                    const std::vector<uint32_t>& sorted_codes,
                    const std::vector<int>& sorted_indices,
@@ -122,6 +142,9 @@ void bvh_build_seq(BVH& bvh,
     bvh_refit_seq(bvh, object_aabbs);
 }
 
+/**
+ * @brief Refits BVH node bounds with a sequential post-order traversal.
+ */
 void bvh_refit_seq(BVH& bvh, const std::vector<AABB>& object_aabbs) {
     if (bvh.nodes.empty()) return;
 
@@ -144,9 +167,9 @@ void bvh_refit_seq(BVH& bvh, const std::vector<AABB>& object_aabbs) {
     update(bvh.root);
 }
 
-// Iterative dual traversal.
-// b < 0: self_traverse(a) — all pairs within subtree a
-// b >= 0: cross(a, b)     — all pairs between subtrees a and b
+/**
+ * @brief Traverses one BVH task and emits overlapping leaf pairs.
+ */
 static void dual_traverse_seq(const std::vector<BVHNode>& nodes,
                                int a, int b,
                                std::vector<CollisionPair>& out) {
@@ -185,6 +208,9 @@ static void dual_traverse_seq(const std::vector<BVHNode>& nodes,
     }
 }
 
+/**
+ * @brief Runs the sequential broad phase with dual traversal.
+ */
 void bvh_traverse_seq(const BVH& bvh, std::vector<CollisionPair>& pairs) {
     pairs.clear();
     if (bvh.nodes.empty()) return;

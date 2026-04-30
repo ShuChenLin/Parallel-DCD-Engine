@@ -1,7 +1,15 @@
+/**
+ * @file aabb.h
+ * @brief Axis-aligned bounding box utilities.
+ */
+
 #pragma once
 #include "vec3.h"
 #include <limits>
 
+/**
+ * @brief Axis-aligned bounding box for broad-phase tests.
+ */
 struct AABB {
     Vec3 lo, hi;
 

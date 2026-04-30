@@ -1,3 +1,8 @@
+/**
+ * @file main.cpp
+ * @brief Command-line driver for the sequential benchmark.
+ */
+
 #include "scene.h"
 #include "timer.h"
 #include <algorithm>
@@ -5,6 +10,9 @@
 #include <cstdlib>
 #include <cstring>
 
+/**
+ * @brief Runs one benchmark scenario and prints timing results.
+ */
 static void run_scenario(Scenario scenario, int n, int frames, bool validate) {
     printf("\n=== Scenario: %s | N=%d | Frames=%d ===\n",
            scenario_name(scenario), n, frames);
@@ -74,10 +82,16 @@ static void run_scenario(Scenario scenario, int n, int frames, bool validate) {
     printf("    GJK narrow:      %8.3f ms\n", acc_stages.gjk_ms      / frames);
 }
 
+/**
+ * @brief Prints command-line usage.
+ */
 static void print_usage(const char* prog) {
     printf("Usage: %s [-n N] [-f frames] [--no-validate]\n", prog);
 }
 
+/**
+ * @brief Entry point for the sequential benchmark executable.
+ */
 int main(int argc, char** argv) {
     int n = 1000;
     int frames = 10;

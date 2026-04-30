@@ -1,3 +1,8 @@
+/**
+ * @file scene_cuda.cu
+ * @brief CUDA scene stepping and collision-detection pipeline.
+ */
+
 #include "scene.h"
 #include "timer.h"
 #include "cuda_utils.cuh"
@@ -12,6 +17,9 @@
 /* ================================================================
    Global persistent GPU context
    ================================================================ */
+/**
+ * @brief Global GPU context reused across CUDA runs.
+ */
 static CUDAContext g_ctx;
 
 /* ================================================================
@@ -514,7 +522,9 @@ __global__ void step_kernel(
    Host helpers: upload / download body data
    ================================================================ */
 
-/* Upload static shape data (vertices + vert_counts) — called once per scene init */
+/**
+ * @brief Uploads static shape data to the GPU.
+ */
 static void upload_shapes(const Scene& scene, CUDAContext& ctx, int n) {
     std::vector<float3> h_verts((size_t)n * MAX_VERTS, make_float3(0, 0, 0));
     std::vector<int>    h_vcnt(n);
@@ -532,7 +542,9 @@ static void upload_shapes(const Scene& scene, CUDAContext& ctx, int n) {
     ctx.shapes_uploaded = true;
 }
 
-/* Upload dynamic data (positions + velocities) — called every frame */
+/**
+ * @brief Uploads per-frame positions and velocities to the GPU.
+ */
 static void upload_dynamic(const Scene& scene, CUDAContext& ctx, int n) {
     std::vector<float3> h_pos(n), h_vel(n);
     for (int i = 0; i < n; i++) {
@@ -543,6 +555,9 @@ static void upload_dynamic(const Scene& scene, CUDAContext& ctx, int n) {
     CUDA_CHECK(cudaMemcpy(ctx.d_velocities, h_vel.data(), n * sizeof(float3), cudaMemcpyHostToDevice));
 }
 
+/**
+ * @brief Downloads positions and velocities from the GPU.
+ */
 static void download_positions(Scene& scene, const CUDAContext& ctx, int n) {
     std::vector<float3> h_pos(n), h_vel(n);
     CUDA_CHECK(cudaMemcpy(h_pos.data(), ctx.d_positions,  n * sizeof(float3), cudaMemcpyDeviceToHost));
@@ -555,10 +570,9 @@ static void download_positions(Scene& scene, const CUDAContext& ctx, int n) {
     }
 }
 
-/* ================================================================
-   Scene::step_cuda
-   ================================================================ */
-
+/**
+ * @brief Advances one frame on the GPU and syncs positions back to the CPU.
+ */
 void Scene::step_cuda() {
     int n = (int)bodies.size();
     if (n == 0) return;
@@ -579,10 +593,9 @@ void Scene::step_cuda() {
     download_positions(*this, g_ctx, n);
 }
 
-/* ================================================================
-   Scene::detect_collisions_cuda
-   ================================================================ */
-
+/**
+ * @brief Runs the full CUDA collision-detection pipeline.
+ */
 Span<CollisionPair> Scene::detect_collisions_cuda() {
     int n = (int)bodies.size();
     if (n == 0) return {};

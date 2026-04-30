@@ -1,7 +1,15 @@
+/**
+ * @file morton_seq.cpp
+ * @brief Sequential Morton-code generation and sorting.
+ */
+
 #include "morton.h"
 #include <algorithm>
 #include <numeric>
 
+/**
+ * @brief Computes Morton codes for all centroids in the sequential path.
+ */
 void compute_morton_codes_seq(const std::vector<Vec3>& centroids,
                               const AABB& scene_bounds,
                               std::vector<uint32_t>& codes) {
@@ -19,6 +27,9 @@ void compute_morton_codes_seq(const std::vector<Vec3>& centroids,
     }
 }
 
+/**
+ * @brief Sorts object indices by Morton code with std::sort.
+ */
 void radix_sort_seq(const std::vector<uint32_t>& codes,
                     std::vector<int>& sorted_indices,
                     std::vector<uint32_t>& sorted_codes) {

@@ -1,3 +1,8 @@
+/**
+ * @file cuda_utils.cuh
+ * @brief CUDA helpers, constants, and persistent GPU context.
+ */
+
 #pragma once
 #include <cuda_runtime.h>
 #include <cstdio>
@@ -48,8 +53,9 @@ inline __device__ __host__ float3 f3max(float3 a, float3 b) {
     return make_float3(fmaxf(a.x, b.x), fmaxf(a.y, b.y), fmaxf(a.z, b.z));
 }
 
-/* ---- GPU BVH node ---- */
-
+/**
+ * @brief BVH node layout used on the GPU.
+ */
 struct GBVHNode {
     float lo_x, lo_y, lo_z;
     float hi_x, hi_y, hi_z;
@@ -64,8 +70,9 @@ inline __device__ bool gnode_overlaps(const GBVHNode& a, const GBVHNode& b) {
            a.lo_z <= b.hi_z && b.lo_z <= a.hi_z;
 }
 
-/* ---- CUDA context (persistent GPU allocations) ---- */
-
+/**
+ * @brief Owns persistent GPU buffers reused across frames.
+ */
 struct CUDAContext {
     float3*   d_positions;
     float3*   d_velocities;
@@ -103,6 +110,9 @@ struct CUDAContext {
 
     CUDAContext() : allocated_n(0), shapes_uploaded(false), h_narrow_pinned(nullptr) {}
 
+    /**
+     * @brief Allocates or grows GPU buffers for n objects.
+     */
     void ensure(int n) {
         if (n <= allocated_n) return;
         free_all();
@@ -141,6 +151,9 @@ struct CUDAContext {
         CUDA_CHECK(cudaMalloc(&d_overflow, sizeof(int)));
     }
 
+    /**
+     * @brief Releases all GPU buffers owned by the context.
+     */
     void free_all() {
         if (!allocated_n) return;
         shapes_uploaded = false;
