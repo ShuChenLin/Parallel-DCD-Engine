@@ -20,7 +20,7 @@ static CUDAContext g_ctx;
 
 __global__ void compute_aabb_kernel(
     const float3* __restrict__ positions,
-    const float3* __restrict__ verts,
+    const float3* __restrict__ verts,   // AoS: [body * MAX_VERTS + j]
     const int*    __restrict__ vcnt,
     int n,
     float3* __restrict__ aabb_lo,
@@ -32,12 +32,12 @@ __global__ void compute_aabb_kernel(
 
     float3 pos = positions[i];
     int nv = vcnt[i];
-    const float3* v = verts + (size_t)i * MAX_VERTS;
+    const float3* vi = verts + (size_t)i * MAX_VERTS;
 
-    float3 lo = pos + v[0];
+    float3 lo = pos + vi[0];
     float3 hi = lo;
     for (int j = 1; j < nv; j++) {
-        float3 w = pos + v[j];
+        float3 w = pos + vi[j];
         lo = f3min(lo, w);
         hi = f3max(hi, w);
     }
@@ -279,12 +279,29 @@ __global__ void traverse_kernel(
 
         if (gnode_is_leaf(nd)) {
             int other = nd.object_idx;
-            if (qobj < other) {
-                int pos = atomicAdd(out_count, 1);
-                if (pos < max_pairs)
-                    out_pairs[pos] = make_int2(qobj, other);
-                else
-                    *overflow = 1;
+            bool emit = (qobj < other);
+
+            /* Warp ballot: all active threads vote, leader does one atomicAdd
+               for the whole warp, then each thread writes to its reserved slot.
+               Reduces atomicAdd contention by up to 32x. */
+            unsigned active  = __activemask();
+            unsigned ballot  = __ballot_sync(active, emit);
+            if (ballot) {
+                int lane        = threadIdx.x & 31;
+                int leader      = __ffs(ballot) - 1;
+                int warp_count  = __popc(ballot);
+                int base        = 0;
+                if (lane == leader)
+                    base = atomicAdd(out_count, warp_count);
+                base = __shfl_sync(active, base, leader);
+                if (emit) {
+                    int rank = __popc(ballot & ((1u << lane) - 1));
+                    int pos  = base + rank;
+                    if (pos < max_pairs)
+                        out_pairs[pos] = make_int2(qobj, other);
+                    else
+                        *overflow = 1;
+                }
             }
         } else {
             stack[top++] = nd.left;
@@ -297,35 +314,24 @@ __global__ void traverse_kernel(
    4. GJK narrow-phase kernel
    ================================================================ */
 
-__device__ float3 gjk_support(
-    const float3* __restrict__ verts,
-    const int*    __restrict__ vcnt,
-    const float3* __restrict__ positions,
-    int body_a, int body_b, float3 dir)
+/* Support function reading world-space vertices from shared memory */
+__device__ float3 gjk_support_smem(
+    const float3* __restrict__ va, int na,
+    const float3* __restrict__ vb, int nb,
+    float3 dir)
 {
-    /* support of A in direction dir */
-    int na = vcnt[body_a];
-    const float3* va = verts + (size_t)body_a * MAX_VERTS;
-    float3 pa = positions[body_a];
     float best_a = -1e30f;
-    float3 sa = pa + va[0];
+    float3 sa = va[0];
     for (int j = 0; j < na; j++) {
-        float3 w = pa + va[j];
-        float proj = dot3(w, dir);
-        if (proj > best_a) { best_a = proj; sa = w; }
+        float proj = dot3(va[j], dir);
+        if (proj > best_a) { best_a = proj; sa = va[j]; }
     }
-
-    /* support of B in direction -dir */
-    int nb = vcnt[body_b];
-    const float3* vb = verts + (size_t)body_b * MAX_VERTS;
-    float3 pb = positions[body_b];
     float3 nd = -dir;
     float best_b = -1e30f;
-    float3 sb = pb + vb[0];
+    float3 sb = vb[0];
     for (int j = 0; j < nb; j++) {
-        float3 w = pb + vb[j];
-        float proj = dot3(w, nd);
-        if (proj > best_b) { best_b = proj; sb = w; }
+        float proj = dot3(vb[j], nd);
+        if (proj > best_b) { best_b = proj; sb = vb[j]; }
     }
     return sa - sb;
 }
@@ -415,21 +421,22 @@ __device__ void simplex_push_front(float3 pts[4], int& cnt, float3 p) {
     if (cnt < 4) cnt++;
 }
 
+/* GJK using world-space vertices pre-loaded into shared memory */
 __device__ bool gjk_intersect_dev(
-    const float3* verts, const int* vcnt, const float3* positions,
-    int body_a, int body_b)
+    const float3* va, int na, float3 pos_a,
+    const float3* vb, int nb, float3 pos_b)
 {
-    float3 dir = positions[body_b] - positions[body_a];
+    float3 dir = pos_b - pos_a;
     if (len2_f3(dir) < 1e-10f) dir = make_float3(1, 0, 0);
 
     float3 pts[4];
     int cnt = 0;
-    float3 sup = gjk_support(verts, vcnt, positions, body_a, body_b, dir);
+    float3 sup = gjk_support_smem(va, na, vb, nb, dir);
     simplex_push_front(pts, cnt, sup);
     dir = -sup;
 
     for (int iter = 0; iter < 64; iter++) {
-        sup = gjk_support(verts, vcnt, positions, body_a, body_b, dir);
+        sup = gjk_support_smem(va, na, vb, nb, dir);
         if (dot3(sup, dir) < 1e-6f) return false;
         simplex_push_front(pts, cnt, sup);
         if (gjk_do_simplex(pts, cnt, dir)) return true;
@@ -440,19 +447,34 @@ __device__ bool gjk_intersect_dev(
 
 __global__ void gjk_kernel(
     const int2*   __restrict__ broad_pairs,
-    int                       num_broad,
-    const float3* __restrict__ verts,
+    int           num_broad,
+    const float3* __restrict__ verts,   // AoS: [body * MAX_VERTS + j]
     const int*    __restrict__ vcnt,
     const float3* __restrict__ positions,
     int2*         __restrict__ out_pairs,
     int*          __restrict__ out_count,
-    int                       max_out)
+    int           max_out)
 {
-    int i = blockIdx.x * blockDim.x + threadIdx.x;
+    __shared__ float3 smem_a[GJK_BLOCK_SIZE][MAX_VERTS];
+    __shared__ float3 smem_b[GJK_BLOCK_SIZE][MAX_VERTS];
+
+    int i   = blockIdx.x * blockDim.x + threadIdx.x;
+    int tid = threadIdx.x;
     if (i >= num_broad) return;
 
-    int2 p = broad_pairs[i];
-    if (gjk_intersect_dev(verts, vcnt, positions, p.x, p.y)) {
+    int2   p      = broad_pairs[i];
+    int    body_a = p.x, body_b = p.y;
+    float3 pos_a  = positions[body_a];
+    float3 pos_b  = positions[body_b];
+    int    na     = vcnt[body_a];
+    int    nb     = vcnt[body_b];
+
+    const float3* va = verts + (size_t)body_a * MAX_VERTS;
+    const float3* vb = verts + (size_t)body_b * MAX_VERTS;
+    for (int j = 0; j < na; j++) smem_a[tid][j] = pos_a + va[j];
+    for (int j = 0; j < nb; j++) smem_b[tid][j] = pos_b + vb[j];
+
+    if (gjk_intersect_dev(smem_a[tid], na, pos_a, smem_b[tid], nb, pos_b)) {
         int pos = atomicAdd(out_count, 1);
         if (pos < max_out) out_pairs[pos] = p;
     }
@@ -559,7 +581,7 @@ void Scene::step_cuda() {
    Scene::detect_collisions_cuda
    ================================================================ */
 
-std::vector<CollisionPair> Scene::detect_collisions_cuda() {
+Span<CollisionPair> Scene::detect_collisions_cuda() {
     int n = (int)bodies.size();
     if (n == 0) return {};
 
@@ -699,8 +721,8 @@ std::vector<CollisionPair> Scene::detect_collisions_cuda() {
     CUDA_CHECK(cudaEventRecord(ev0));
     CUDA_CHECK(cudaMemset(g_ctx.d_narrow_count, 0, sizeof(int)));
     if (h_broad_count > 0) {
-        int gjk_grid = (h_broad_count + BLOCK_SIZE - 1) / BLOCK_SIZE;
-        gjk_kernel<<<gjk_grid, BLOCK_SIZE>>>(
+        int gjk_grid = (h_broad_count + GJK_BLOCK_SIZE - 1) / GJK_BLOCK_SIZE;
+        gjk_kernel<<<gjk_grid, GJK_BLOCK_SIZE>>>(
             g_ctx.d_broad_pairs, h_broad_count,
             g_ctx.d_vertices, g_ctx.d_vert_counts, g_ctx.d_positions,
             g_ctx.d_narrow_pairs, g_ctx.d_narrow_count, g_ctx.max_narrow);
@@ -713,17 +735,13 @@ std::vector<CollisionPair> Scene::detect_collisions_cuda() {
     CUDA_CHECK(cudaMemcpy(&h_narrow_count, g_ctx.d_narrow_count, sizeof(int), cudaMemcpyDeviceToHost));
     if (h_narrow_count > g_ctx.max_narrow) h_narrow_count = g_ctx.max_narrow;
 
-    /* download confirmed pairs */
-    std::vector<int2> h_pairs(h_narrow_count);
+    /* download confirmed pairs into pre-allocated pinned buffer (faster PCIe transfer) */
     if (h_narrow_count > 0)
-        CUDA_CHECK(cudaMemcpy(h_pairs.data(), g_ctx.d_narrow_pairs,
+        CUDA_CHECK(cudaMemcpy(g_ctx.h_narrow_pinned, g_ctx.d_narrow_pairs,
                               h_narrow_count * sizeof(int2), cudaMemcpyDeviceToHost));
-
-    std::vector<CollisionPair> result(h_narrow_count);
-    for (int i = 0; i < h_narrow_count; i++)
-        result[i] = {h_pairs[i].x, h_pairs[i].y};
 
     CUDA_CHECK(cudaEventDestroy(ev0));
     CUDA_CHECK(cudaEventDestroy(ev1));
-    return result;
+    return Span<CollisionPair>(
+        reinterpret_cast<CollisionPair*>(g_ctx.h_narrow_pinned), h_narrow_count);
 }

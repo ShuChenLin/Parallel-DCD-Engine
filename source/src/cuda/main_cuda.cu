@@ -35,7 +35,7 @@ static void run_scenario(Scenario scenario, int n, int frames, bool validate) {
             auto bf = scene.detect_collisions_bruteforce();
             std::sort(collisions.begin(), collisions.end());
             std::sort(bf.begin(), bf.end());
-            if (collisions == bf) {
+            if (std::equal(collisions.begin(), collisions.end(), bf.begin(), bf.end())) {
                 printf("  [PASS] Frame %d: CUDA matches brute-force (%zu collisions)\n",
                        f, collisions.size());
             } else {
