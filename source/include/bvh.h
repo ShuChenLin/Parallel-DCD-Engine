@@ -10,6 +10,7 @@ struct BVHNode {
     int right;       // right child index (internal) or -1
     int parent;
     int object_idx;  // >= 0 for leaves, -1 for internal nodes
+    int leaf_count;  // number of leaves under this node
 
     bool is_leaf() const { return object_idx >= 0; }
 };
@@ -36,4 +37,5 @@ void bvh_build_omp(BVH& bvh,
                    const std::vector<int>& sorted_indices,
                    const std::vector<AABB>& object_aabbs);
 void bvh_refit_omp(BVH& bvh, const std::vector<AABB>& object_aabbs);
-void bvh_traverse_omp(const BVH& bvh, std::vector<CollisionPair>& pairs);
+void bvh_traverse_omp(const BVH& bvh, std::vector<CollisionPair>& pairs,
+                      bool weighted_split = false);

@@ -26,6 +26,31 @@ static Vec3 support(const Body& a, const Body& b, const Vec3& d) {
     return sa - sb;
 }
 
+static Vec3 support_soa(ShapeType a_type, const Vec3& a_position,
+                        ShapeType b_type, const Vec3& b_position,
+                        const Vec3& d) {
+    Vec3 sa = a_position;
+    {
+        float best = -1e30f;
+        for (const auto& v : shape_vertices(a_type)) {
+            Vec3 w = v + a_position;
+            float proj = w.dot(d);
+            if (proj > best) { best = proj; sa = w; }
+        }
+    }
+    Vec3 sb = b_position;
+    {
+        Vec3 nd = -d;
+        float best = -1e30f;
+        for (const auto& v : shape_vertices(b_type)) {
+            Vec3 w = v + b_position;
+            float proj = w.dot(nd);
+            if (proj > best) { best = proj; sb = w; }
+        }
+    }
+    return sa - sb;
+}
+
 struct Simplex {
     std::array<Vec3, 4> pts;
     int count = 0;
@@ -136,6 +161,37 @@ bool gjk_intersect(const Body& a, const Body& b) {
 
         if (sup.dot(dir) < 1e-6f) {
             return false;  // No intersection
+        }
+
+        simplex.push_front(sup);
+
+        if (do_simplex(simplex, dir)) {
+            return true;
+        }
+
+        if (dir.length2() < 1e-20f) {
+            return true;
+        }
+    }
+
+    return false;
+}
+
+bool gjk_intersect_soa(ShapeType a_type, const Vec3& a_position,
+                       ShapeType b_type, const Vec3& b_position) {
+    Vec3 dir = b_position - a_position;
+    if (dir.length2() < 1e-10f) dir = {1, 0, 0};
+
+    Simplex simplex;
+    Vec3 sup = support_soa(a_type, a_position, b_type, b_position, dir);
+    simplex.push_front(sup);
+    dir = -sup;
+
+    for (int iter = 0; iter < 64; iter++) {
+        sup = support_soa(a_type, a_position, b_type, b_position, dir);
+
+        if (sup.dot(dir) < 1e-6f) {
+            return false;
         }
 
         simplex.push_front(sup);

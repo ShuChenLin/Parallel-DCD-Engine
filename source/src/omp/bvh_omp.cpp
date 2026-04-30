@@ -1,13 +1,95 @@
+/**
+ * @file bvh_omp.cpp
+ * @brief OpenMP BVH construction, refit, and broad-phase traversal.
+ *
+ * This file implements the parallel LBVH build, bottom-up refit, dual
+ * traversal, and optional traversal load-balance instrumentation used by the
+ * OpenMP collision-detection path.
+ */
+
 #include "bvh.h"
 #include <algorithm>
+#include <cstdio>
+#include <cstdlib>
 #include <functional>
 #include <omp.h>
 
+struct TraverseThreadStats {
+    long long tasks = 0;
+    long long stack_visits = 0;
+    long long overlap_tests = 0;
+    long long leaf_pairs = 0;
+    long long emitted_pairs = 0;
+    double work_ms = 0.0;
+};
+
+/**
+ * @brief Reads the traversal load-balance instrumentation level.
+ *
+ * The level is controlled through DCD_LOAD_BALANCE and enables summary or
+ * detailed per-thread reporting for broad-phase traversal.
+ */
+static int load_balance_level() {
+    const char* env = std::getenv("DCD_LOAD_BALANCE");
+    return env ? std::atoi(env) : 0;
+}
+
+/**
+ * @brief Prints min/avg/max imbalance statistics for a traversal counter.
+ *
+ * This helper is used to summarize traversal work counts and the associated
+ * per-thread execution time after the parallel broad phase completes.
+ */
+static void print_balance_summary(const char* label,
+                                  const std::vector<TraverseThreadStats>& stats,
+                                  long long TraverseThreadStats::*count_member,
+                                  double TraverseThreadStats::*time_member) {
+    long long min_count = 0, max_count = 0, sum_count = 0;
+    double min_ms = 0.0, max_ms = 0.0, sum_ms = 0.0;
+    bool initialized = false;
+
+    for (const auto& s : stats) {
+        long long count = s.*count_member;
+        double ms = s.*time_member;
+        if (!initialized) {
+            min_count = max_count = count;
+            min_ms = max_ms = ms;
+            initialized = true;
+        } else {
+            min_count = std::min(min_count, count);
+            max_count = std::max(max_count, count);
+            min_ms = std::min(min_ms, ms);
+            max_ms = std::max(max_ms, ms);
+        }
+        sum_count += count;
+        sum_ms += ms;
+    }
+
+    double avg_count = stats.empty() ? 0.0 : (double)sum_count / stats.size();
+    double avg_ms = stats.empty() ? 0.0 : sum_ms / stats.size();
+    double count_imbalance = avg_count > 0.0 ? max_count / avg_count : 0.0;
+    double time_imbalance = avg_ms > 0.0 ? max_ms / avg_ms : 0.0;
+
+    std::printf("    [load-balance] %s count min/avg/max=%lld/%.1f/%lld imbalance=%.2fx"
+                " | time min/avg/max=%.3f/%.3f/%.3f ms imbalance=%.2fx\n",
+                label, min_count, avg_count, max_count, count_imbalance,
+                min_ms, avg_ms, max_ms, time_imbalance);
+}
+
+/**
+ * @brief Returns the number of leading zero bits in a 32-bit integer.
+ */
 static int clz(uint32_t x) {
     if (x == 0) return 32;
     return __builtin_clz(x);
 }
 
+/**
+ * @brief Computes the Karras delta metric between two Morton-code positions.
+ *
+ * The delta is the common-prefix length used by LBVH range determination.
+ * When the Morton codes are identical, the object indices break the tie.
+ */
 static int bvh_delta(const std::vector<uint32_t>& codes, int num_objects,
                      int i, int j) {
     if (j < 0 || j >= num_objects) return -1;
@@ -16,6 +98,12 @@ static int bvh_delta(const std::vector<uint32_t>& codes, int num_objects,
     return clz(codes[i] ^ codes[j]);
 }
 
+/**
+ * @brief Determines the object range covered by internal node i.
+ *
+ * This follows the LBVH construction method from Karras by expanding in the
+ * dominant direction until the longest valid Morton-code range is found.
+ */
 static void determine_range(const std::vector<uint32_t>& codes, int num_objects,
                              int i, int& out_left, int& out_right) {
     int d_left = bvh_delta(codes, num_objects, i, i - 1);
@@ -40,6 +128,12 @@ static void determine_range(const std::vector<uint32_t>& codes, int num_objects,
     out_right = std::max(i, j);
 }
 
+/**
+ * @brief Finds the split point for a Morton-code range.
+ *
+ * The split separates a node's range into its left and right child ranges
+ * based on the shared Morton-code prefix.
+ */
 static int find_split(const std::vector<uint32_t>& codes,
                       int left, int right) {
     uint32_t first_code = codes[left];
@@ -67,6 +161,13 @@ static int find_split(const std::vector<uint32_t>& codes,
     return split;
 }
 
+/**
+ * @brief Builds an LBVH in parallel from sorted Morton codes and AABBs.
+ *
+ * Leaf nodes are initialized from the sorted object order, internal topology
+ * is generated independently per node, and the final node bounds are filled by
+ * the parallel refit pass.
+ */
 void bvh_build_omp(BVH& bvh,
                    const std::vector<uint32_t>& sorted_codes,
                    const std::vector<int>& sorted_indices,
@@ -82,6 +183,7 @@ void bvh_build_omp(BVH& bvh,
         bvh.nodes[0].right = -1;
         bvh.nodes[0].parent = -1;
         bvh.nodes[0].object_idx = sorted_indices[0];
+        bvh.nodes[0].leaf_count = 1;
         bvh.root = 0;
         return;
     }
@@ -97,6 +199,7 @@ void bvh_build_omp(BVH& bvh,
         bvh.nodes[leaf].left = -1;
         bvh.nodes[leaf].right = -1;
         bvh.nodes[leaf].parent = -1;
+        bvh.nodes[leaf].leaf_count = 1;
     }
 
     // Build internal nodes using Karras algorithm (parallel)
@@ -112,6 +215,7 @@ void bvh_build_omp(BVH& bvh,
         bvh.nodes[i].left = left_child;
         bvh.nodes[i].right = right_child;
         bvh.nodes[i].object_idx = -1;
+        bvh.nodes[i].leaf_count = 0;
         bvh.nodes[left_child].parent = i;
         bvh.nodes[right_child].parent = i;
     }
@@ -122,9 +226,13 @@ void bvh_build_omp(BVH& bvh,
     bvh_refit_omp(bvh, object_aabbs);
 }
 
-// Parallel bottom-up refit using atomic propagation.
-// Each leaf signals its parent; the second thread to arrive at an internal node
-// merges both children's AABBs and propagates upward.
+/**
+ * @brief Refits BVH node bounds in parallel using atomic bottom-up propagation.
+ *
+ * Each leaf updates its own bounding box and walks toward the root. The first
+ * child to reach an internal node exits, while the second merges both children
+ * and continues the upward propagation.
+ */
 void bvh_refit_omp(BVH& bvh, const std::vector<AABB>& object_aabbs) {
     if (bvh.nodes.empty()) return;
     int n = bvh.num_objects;
@@ -156,17 +264,24 @@ void bvh_refit_omp(BVH& bvh, const std::vector<AABB>& object_aabbs) {
             bvh.nodes[node].box = AABB::merge(
                 bvh.nodes[bvh.nodes[node].left].box,
                 bvh.nodes[bvh.nodes[node].right].box);
+            bvh.nodes[node].leaf_count =
+                bvh.nodes[bvh.nodes[node].left].leaf_count +
+                bvh.nodes[bvh.nodes[node].right].leaf_count;
             node = bvh.nodes[node].parent;
         }
     }
 }
 
-// Iterative dual traversal (used per-task in parallel phase).
-// b < 0: self_traverse(a) — all pairs within subtree a
-// b >= 0: cross(a, b)     — all pairs between subtrees a and b
+/**
+ * @brief Traverses one BVH task iteratively and emits overlapping leaf pairs.
+ *
+ * When b < 0 the task performs self-traversal within subtree a; otherwise it
+ * performs cross traversal between subtrees a and b.
+ */
 static void dual_traverse_omp(const std::vector<BVHNode>& nodes,
                                int a, int b,
-                               std::vector<CollisionPair>& out) {
+                               std::vector<CollisionPair>& out,
+                               TraverseThreadStats* stats = nullptr) {
     struct Frame { int a, b; };
     std::vector<Frame> stk;
     stk.reserve(64);
@@ -174,6 +289,7 @@ static void dual_traverse_omp(const std::vector<BVHNode>& nodes,
 
     while (!stk.empty()) {
         auto [na, nb] = stk.back(); stk.pop_back();
+        if (stats) stats->stack_visits++;
 
         if (nb < 0) {
             if (nodes[na].is_leaf()) continue;
@@ -181,12 +297,19 @@ static void dual_traverse_omp(const std::vector<BVHNode>& nodes,
             stk.push_back({nodes[na].right, -1});
             stk.push_back({nodes[na].left,  nodes[na].right});
         } else {
+            if (stats) stats->overlap_tests++;
             if (!AABB::overlaps(nodes[na].box, nodes[nb].box)) continue;
             bool al = nodes[na].is_leaf(), bl = nodes[nb].is_leaf();
             if (al && bl) {
+                if (stats) stats->leaf_pairs++;
                 int oa = nodes[na].object_idx, ob = nodes[nb].object_idx;
-                if (oa < ob) out.push_back({oa, ob});
-                else if (ob < oa) out.push_back({ob, oa});
+                if (oa < ob) {
+                    out.push_back({oa, ob});
+                    if (stats) stats->emitted_pairs++;
+                } else if (ob < oa) {
+                    out.push_back({ob, oa});
+                    if (stats) stats->emitted_pairs++;
+                }
                 continue;
             }
             if (al) {
@@ -200,19 +323,44 @@ static void dual_traverse_omp(const std::vector<BVHNode>& nodes,
     }
 }
 
-void bvh_traverse_omp(const BVH& bvh, std::vector<CollisionPair>& pairs) {
+/**
+ * @brief Runs the OpenMP broad phase with task-based dual BVH traversal.
+ *
+ * The traversal first expands the root into a frontier of subtree-pair tasks,
+ * optionally applies extra weighted splitting for dense scenes, and then
+ * processes those tasks in parallel to produce candidate collision pairs.
+ */
+void bvh_traverse_omp(const BVH& bvh, std::vector<CollisionPair>& pairs,
+                      bool weighted_split) {
     pairs.clear();
     if (bvh.nodes.empty()) return;
 
     int num_threads = omp_get_max_threads();
 
-    // Phase 1 (serial): BFS-expand until we have enough independent tasks.
     struct Task { int a, b; };
     std::vector<Task> pending = {{bvh.root, -1}};
-    const int TARGET = num_threads * 16;
+    std::vector<Task> tasks;
+    tasks.reserve(num_threads * (weighted_split ? 64 : 16));
+
+    const int TARGET = num_threads * (weighted_split ? 64 : 16);
+    const long long MAX_TASK_WEIGHT = 4096;
     int head = 0;
 
-    while (head < (int)pending.size() && (int)pending.size() < TARGET) {
+    auto task_weight = [&](const Task& t) -> long long {
+        if (t.b < 0) {
+            long long leaves = bvh.nodes[t.a].leaf_count;
+            return leaves * leaves;
+        }
+        return (long long)bvh.nodes[t.a].leaf_count * bvh.nodes[t.b].leaf_count;
+    };
+
+    auto should_expand = [&]() {
+        if (head >= (int)pending.size()) return false;
+        if (!weighted_split) return (int)pending.size() < TARGET;
+        return (int)tasks.size() < TARGET || task_weight(pending[head]) > MAX_TASK_WEIGHT;
+    };
+
+    while (should_expand()) {
         Task t = pending[head++];
 
         if (t.b < 0) {
@@ -232,25 +380,64 @@ void bvh_traverse_omp(const BVH& bvh, std::vector<CollisionPair>& pairs) {
             if (al) {
                 pending.push_back({t.a, bvh.nodes[t.b].left});
                 pending.push_back({t.a, bvh.nodes[t.b].right});
-            } else {
+            } else if (!weighted_split || bl ||
+                       bvh.nodes[t.a].leaf_count >= bvh.nodes[t.b].leaf_count) {
                 pending.push_back({bvh.nodes[t.a].left,  t.b});
                 pending.push_back({bvh.nodes[t.a].right, t.b});
+            } else {
+                pending.push_back({t.a, bvh.nodes[t.b].left});
+                pending.push_back({t.a, bvh.nodes[t.b].right});
             }
+        }
+
+        while (weighted_split && head < (int)pending.size() && (int)tasks.size() < TARGET) {
+            Task next = pending[head];
+            if (task_weight(next) > MAX_TASK_WEIGHT) break;
+            tasks.push_back(next);
+            head++;
         }
     }
 
-    // Phase 2 (parallel): process all unexpanded tasks.
-    std::vector<Task> tasks(pending.begin() + head, pending.end());
+    tasks.insert(tasks.end(), pending.begin() + head, pending.end());
     int ntasks = (int)tasks.size();
 
     std::vector<std::vector<CollisionPair>> thread_pairs(num_threads);
+    int balance_level = load_balance_level();
+    std::vector<TraverseThreadStats> stats(balance_level ? num_threads : 0);
+
     #pragma omp parallel for schedule(dynamic, 1)
     for (int i = 0; i < ntasks; i++) {
         int tid = omp_get_thread_num();
-        dual_traverse_omp(bvh.nodes, tasks[i].a, tasks[i].b, thread_pairs[tid]);
+        double t0 = balance_level ? omp_get_wtime() : 0.0;
+        if (balance_level) stats[tid].tasks++;
+        dual_traverse_omp(bvh.nodes, tasks[i].a, tasks[i].b, thread_pairs[tid],
+                          balance_level ? &stats[tid] : nullptr);
+        if (balance_level) stats[tid].work_ms += (omp_get_wtime() - t0) * 1000.0;
     }
 
     for (int t = 0; t < num_threads; t++) {
         pairs.insert(pairs.end(), thread_pairs[t].begin(), thread_pairs[t].end());
+    }
+
+    if (balance_level) {
+        std::printf("    [load-balance] BVH traverse tasks=%d output_pairs=%zu weighted=%s\n",
+                    ntasks, pairs.size(), weighted_split ? "yes" : "no");
+        print_balance_summary("traverse stack_visits", stats,
+                              &TraverseThreadStats::stack_visits,
+                              &TraverseThreadStats::work_ms);
+        print_balance_summary("traverse emitted_pairs", stats,
+                              &TraverseThreadStats::emitted_pairs,
+                              &TraverseThreadStats::work_ms);
+
+        if (balance_level >= 2) {
+            std::printf("    [load-balance] BVH per-thread: tid tasks visits overlap leaf emitted work_ms\n");
+            for (int t = 0; t < num_threads; t++) {
+                std::printf("    [load-balance] BVH tid=%d tasks=%lld visits=%lld overlap=%lld"
+                            " leaf=%lld emitted=%lld work_ms=%.3f\n",
+                            t, stats[t].tasks, stats[t].stack_visits,
+                            stats[t].overlap_tests, stats[t].leaf_pairs,
+                            stats[t].emitted_pairs, stats[t].work_ms);
+            }
+        }
     }
 }

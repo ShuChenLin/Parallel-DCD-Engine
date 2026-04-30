@@ -1,10 +1,25 @@
-CXX      = g++
-CXXFLAGS = -std=c++17 -O2 -Wall -Wextra -Iinclude -fopenmp
-LDFLAGS  = -fopenmp
+UNAME_S := $(shell uname -s)
+
+BASE_CXXFLAGS = -std=c++17 -O2 -Wall -Wextra -Iinclude
+
+ifeq ($(UNAME_S),Darwin)
+CXX        = clang++
+OMP_PREFIX ?= $(shell brew --prefix libomp 2>/dev/null)
+OMP_CXXFLAGS = -Xpreprocessor -fopenmp -I$(OMP_PREFIX)/include
+OMP_LDFLAGS  = -L$(OMP_PREFIX)/lib -lomp
+GL_LIBS      = -framework OpenGL
+else
+CXX        = g++
+OMP_CXXFLAGS = -fopenmp
+OMP_LDFLAGS  = -fopenmp
+GL_LIBS      = -lGL
+endif
+
+CXXFLAGS = $(BASE_CXXFLAGS) $(OMP_CXXFLAGS)
+LDFLAGS  = $(OMP_LDFLAGS)
 
 GLFW_CFLAGS  = $(shell pkg-config --cflags glfw3 2>/dev/null)
 GLFW_LIBS    = $(shell pkg-config --libs glfw3 2>/dev/null)
-GL_LIBS      = -lGL
 
 # Shared sources (morton utilities, scene init/bruteforce)
 SHARED_SRC = src/morton.cpp src/scene_common.cpp
@@ -20,8 +35,6 @@ SHARED_OBJ = $(SHARED_SRC:.cpp=.o)
 SEQ_OBJ    = $(SEQ_SRC:.cpp=.o)
 OMP_OBJ    = $(OMP_SRC:.cpp=.o)
 
-all: dcd_seq dcd_viz dcd_test
-
 # Sequential CLI
 dcd_seq: src/seq/main.o $(SHARED_OBJ) $(SEQ_OBJ)
 	$(CXX) $(CXXFLAGS) -o $@ $^
@@ -35,10 +48,10 @@ src/renderer.o: src/renderer.cpp
 
 # OpenMP CLI (compile OMP sources with -fopenmp, link seq/gjk_seq for GJK)
 dcd_omp: src/omp/main_omp.o $(SHARED_OBJ) $(OMP_OBJ) src/seq/gjk_seq.o
-	$(CXX) $(CXXFLAGS) -fopenmp -o $@ $^
+	$(CXX) $(CXXFLAGS) -o $@ $^ $(LDFLAGS)
 
 src/omp/%.o: src/omp/%.cpp
-	$(CXX) $(CXXFLAGS) -fopenmp -c -o $@ $<
+	$(CXX) $(CXXFLAGS) -c -o $@ $<
 
 %.o: %.cpp
 	$(CXX) $(CXXFLAGS) -c -o $@ $<

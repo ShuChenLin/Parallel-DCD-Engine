@@ -46,6 +46,7 @@ struct Scene {
     StageTimes stage_times;
     int frames_since_rebuild = 0;
     int rebuild_interval = 5;
+    Scenario scenario = Scenario::RANDOM_WALK;
 
     // Initialize a scene with n bodies of a given scenario
     void init(int n, Scenario scenario, float world_size = 100.0f);
@@ -72,6 +73,9 @@ struct Scene {
     std::vector<CollisionPair> detect_collisions_bruteforce();
 
     // Scratch buffers (reused across frames)
+    std::vector<Vec3> _positions;
+    std::vector<Vec3> _velocities;
+    std::vector<ShapeType> _shape_types;
     std::vector<Vec3> _centroids;
     std::vector<AABB> _aabbs;
     std::vector<uint32_t> _codes;

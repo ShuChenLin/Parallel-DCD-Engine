@@ -15,7 +15,11 @@ const char* scenario_name(Scenario s) {
 
 void Scene::init(int n, Scenario scenario, float world_size) {
     bodies.resize(n);
+    _positions.resize(n);
+    _velocities.resize(n);
+    _shape_types.resize(n);
     bounds = AABB({0, 0, 0}, {world_size, world_size, world_size});
+    this->scenario = scenario;
     dt = 0.016f;  // ~60fps
     frames_since_rebuild = 0;
 
@@ -31,20 +35,23 @@ void Scene::init(int n, Scenario scenario, float world_size) {
         case Scenario::RANDOM_WALK: {
             for (int i = 0; i < n; i++) {
                 int kind = i % 4;
-                if      (kind == 0) bodies[i].shape = Shape::make_cube(obj_size * 0.5f);
-                else if (kind == 1) bodies[i].shape = Shape::make_tetrahedron(obj_size);
-                else if (kind == 2) bodies[i].shape = Shape::make_octahedron(obj_size * 0.5f);
-                else                bodies[i].shape = Shape::make_icosphere(obj_size * 0.5f);
-                bodies[i].position = {
+                if      (kind == 0) _shape_types[i] = ShapeType::Cube;
+                else if (kind == 1) _shape_types[i] = ShapeType::Tetrahedron;
+                else if (kind == 2) _shape_types[i] = ShapeType::Octahedron;
+                else                _shape_types[i] = ShapeType::Icosphere;
+                bodies[i].shape = make_shape(_shape_types[i]);
+                _positions[i] = {
                     rand_float(margin, world_size - margin),
                     rand_float(margin, world_size - margin),
                     rand_float(margin, world_size - margin)
                 };
-                bodies[i].velocity = {
+                _velocities[i] = {
                     rand_float(-10, 10),
                     rand_float(-10, 10),
                     rand_float(-10, 10)
                 };
+                bodies[i].position = _positions[i];
+                bodies[i].velocity = _velocities[i];
                 bodies[i].update_aabb();
             }
             break;
@@ -54,22 +61,29 @@ void Scene::init(int n, Scenario scenario, float world_size) {
             float center = world_size * 0.5f;
             float cluster_spread = world_size * 0.15f;
             for (int i = 0; i < n; i++) {
-                bodies[i].shape = Shape::make_cube(obj_size * 0.5f);
+                int kind = i % 4;
+                if      (kind == 0) _shape_types[i] = ShapeType::Cube;
+                else if (kind == 1) _shape_types[i] = ShapeType::Tetrahedron;
+                else if (kind == 2) _shape_types[i] = ShapeType::Octahedron;
+                else                _shape_types[i] = ShapeType::Icosphere;
+                bodies[i].shape = make_shape(_shape_types[i]);
                 if (i < n / 2) {
-                    bodies[i].position = {
+                    _positions[i] = {
                         center - world_size * 0.25f + rand_float(-cluster_spread, cluster_spread),
                         center + rand_float(-cluster_spread, cluster_spread),
                         center + rand_float(-cluster_spread, cluster_spread)
                     };
-                    bodies[i].velocity = {rand_float(5, 15), rand_float(-2, 2), rand_float(-2, 2)};
+                    _velocities[i] = {rand_float(5, 15), rand_float(-2, 2), rand_float(-2, 2)};
                 } else {
-                    bodies[i].position = {
+                    _positions[i] = {
                         center + world_size * 0.25f + rand_float(-cluster_spread, cluster_spread),
                         center + rand_float(-cluster_spread, cluster_spread),
                         center + rand_float(-cluster_spread, cluster_spread)
                     };
-                    bodies[i].velocity = {rand_float(-15, -5), rand_float(-2, 2), rand_float(-2, 2)};
+                    _velocities[i] = {rand_float(-15, -5), rand_float(-2, 2), rand_float(-2, 2)};
                 }
+                bodies[i].position = _positions[i];
+                bodies[i].velocity = _velocities[i];
                 bodies[i].update_aabb();
             }
             break;
@@ -84,20 +98,27 @@ void Scene::init(int n, Scenario scenario, float world_size) {
             float y_step = (iz_max > 0) ? (avail_y * 0.5f / iz_max) : spacing * 2.0f;
             float y_base = margin + avail_y * 0.5f;  // start at mid-height, stack up
             for (int i = 0; i < n; i++) {
-                bodies[i].shape = Shape::make_cube(obj_size * 0.5f);
+                int kind = i % 4;
+                if      (kind == 0) _shape_types[i] = ShapeType::Cube;
+                else if (kind == 1) _shape_types[i] = ShapeType::Tetrahedron;
+                else if (kind == 2) _shape_types[i] = ShapeType::Octahedron;
+                else                _shape_types[i] = ShapeType::Icosphere;
+                bodies[i].shape = make_shape(_shape_types[i]);
                 int ix = i % per_row;
                 int iy = (i / per_row) % per_row;
                 int iz = i / (per_row * per_row);
-                bodies[i].position = {
+                _positions[i] = {
                     margin + ix * spacing + rand_float(-0.1f, 0.1f),
                     y_base  + iz * y_step,  // stacked high, always within bounds
                     margin + iy * spacing + rand_float(-0.1f, 0.1f)
                 };
-                bodies[i].velocity = {
+                _velocities[i] = {
                     rand_float(-1, 1),
                     rand_float(-20, -5),
                     rand_float(-1, 1)
                 };
+                bodies[i].position = _positions[i];
+                bodies[i].velocity = _velocities[i];
                 bodies[i].update_aabb();
             }
             break;

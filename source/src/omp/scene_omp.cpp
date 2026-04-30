@@ -1,28 +1,129 @@
+/**
+ * @file scene_omp.cpp
+ * @brief OpenMP scene stepping and collision-detection pipeline.
+ *
+ * This file contains the parallel scene update path, the OpenMP collision
+ * detection pipeline, and optional per-thread load-balance instrumentation for
+ * the GJK narrow phase.
+ */
+
 #include "scene.h"
 #include "morton.h"
 #include "bvh.h"
 #include "gjk.h"
 #include "timer.h"
+#include <algorithm>
+#include <cstdio>
+#include <cstdlib>
 #include <omp.h>
 
+struct GjkThreadStats {
+    long long calls = 0;
+    long long confirmed = 0;
+    double work_ms = 0.0;
+};
+
+/**
+ * @brief Reads the load-balance instrumentation level from the environment.
+ *
+ * DCD_LOAD_BALANCE=0 disables instrumentation, while larger values enable
+ * progressively more detailed per-thread reporting.
+ */
+static int scene_load_balance_level() {
+    const char* env = std::getenv("DCD_LOAD_BALANCE");
+    return env ? std::atoi(env) : 0;
+}
+
+/**
+ * @brief Prints a compact per-thread load-balance summary for GJK work.
+ *
+ * The summary reports min/avg/max call count, confirmed collision count, and
+ * wall-clock work time across OpenMP threads.
+ */
+static void print_gjk_balance(const std::vector<GjkThreadStats>& stats) {
+    long long min_calls = 0, max_calls = 0, sum_calls = 0;
+    long long min_confirmed = 0, max_confirmed = 0, sum_confirmed = 0;
+    double min_ms = 0.0, max_ms = 0.0, sum_ms = 0.0;
+    bool initialized = false;
+
+    for (const auto& s : stats) {
+        if (!initialized) {
+            min_calls = max_calls = s.calls;
+            min_confirmed = max_confirmed = s.confirmed;
+            min_ms = max_ms = s.work_ms;
+            initialized = true;
+        } else {
+            min_calls = std::min(min_calls, s.calls);
+            max_calls = std::max(max_calls, s.calls);
+            min_confirmed = std::min(min_confirmed, s.confirmed);
+            max_confirmed = std::max(max_confirmed, s.confirmed);
+            min_ms = std::min(min_ms, s.work_ms);
+            max_ms = std::max(max_ms, s.work_ms);
+        }
+        sum_calls += s.calls;
+        sum_confirmed += s.confirmed;
+        sum_ms += s.work_ms;
+    }
+
+    double avg_calls = stats.empty() ? 0.0 : (double)sum_calls / stats.size();
+    double avg_confirmed = stats.empty() ? 0.0 : (double)sum_confirmed / stats.size();
+    double avg_ms = stats.empty() ? 0.0 : sum_ms / stats.size();
+    double call_imbalance = avg_calls > 0.0 ? max_calls / avg_calls : 0.0;
+    double time_imbalance = avg_ms > 0.0 ? max_ms / avg_ms : 0.0;
+
+    std::printf("    [load-balance] GJK calls min/avg/max=%lld/%.1f/%lld imbalance=%.2fx"
+                " | confirmed min/avg/max=%lld/%.1f/%lld"
+                " | time min/avg/max=%.3f/%.3f/%.3f ms imbalance=%.2fx\n",
+                min_calls, avg_calls, max_calls, call_imbalance,
+                min_confirmed, avg_confirmed, max_confirmed,
+                min_ms, avg_ms, max_ms, time_imbalance);
+}
+
+/**
+ * @brief Advances all bodies by one time step using OpenMP.
+ *
+ * Each body is updated independently and reflected against the world bounds.
+ * The SoA scratch arrays and the Body objects are both kept in sync.
+ */
 void Scene::step_omp() {
     int n = static_cast<int>(bodies.size());
+    if ((int)_positions.size() != n) {
+        _positions.resize(n);
+        _velocities.resize(n);
+        _shape_types.assign(n, ShapeType::Cube);
+        for (int i = 0; i < n; i++) {
+            _positions[i] = bodies[i].position;
+            _velocities[i] = bodies[i].velocity;
+        }
+    }
     #pragma omp parallel for schedule(static)
     for (int i = 0; i < n; i++) {
-        auto& b = bodies[i];
-        b.position += b.velocity * dt;
+        Vec3 position = _positions[i] + _velocities[i] * dt;
+        Vec3 velocity = _velocities[i];
 
         for (int axis = 0; axis < 3; axis++) {
-            float* pos = &b.position.x + axis;
-            float* vel = &b.velocity.x + axis;
+            float* pos = &position.x + axis;
+            float* vel = &velocity.x + axis;
             float lo = (&bounds.lo.x)[axis];
             float hi = (&bounds.hi.x)[axis];
             if (*pos < lo) { *pos = lo + (lo - *pos); *vel = std::abs(*vel); }
             if (*pos > hi) { *pos = hi - (*pos - hi); *vel = -std::abs(*vel); }
         }
+
+        _positions[i] = position;
+        _velocities[i] = velocity;
+        bodies[i].position = position;
+        bodies[i].velocity = velocity;
     }
 }
 
+/**
+ * @brief Runs the full OpenMP collision-detection pipeline for one frame.
+ *
+ * The pipeline updates per-object AABBs, optionally rebuilds or refits the
+ * BVH, traverses the broad phase, and confirms collisions with parallel GJK.
+ * Stage timings are recorded in scene.stage_times for later reporting.
+ */
 std::vector<CollisionPair> Scene::detect_collisions_omp() {
     int n = static_cast<int>(bodies.size());
     if (n == 0) return {};
@@ -30,15 +131,25 @@ std::vector<CollisionPair> Scene::detect_collisions_omp() {
     Timer t;
 
     // 1. Update AABBs and gather centroids (always needed)
+    if ((int)_positions.size() != n) {
+        _positions.resize(n);
+        _velocities.resize(n);
+        _shape_types.assign(n, ShapeType::Cube);
+        for (int i = 0; i < n; i++) {
+            _positions[i] = bodies[i].position;
+            _velocities[i] = bodies[i].velocity;
+        }
+    }
     _centroids.resize(n);
     _aabbs.resize(n);
     AABB scene_aabb;
     t.start();
     #pragma omp parallel for schedule(static)
     for (int i = 0; i < n; i++) {
-        bodies[i].update_aabb();
-        _centroids[i] = bodies[i].world_aabb.centroid();
-        _aabbs[i] = bodies[i].world_aabb;
+        AABB box = compute_shape_aabb(_shape_types[i], _positions[i]);
+        _centroids[i] = box.centroid();
+        _aabbs[i] = box;
+        bodies[i].world_aabb = box;
     }
     // Parallel AABB reduction
     {
@@ -93,7 +204,7 @@ std::vector<CollisionPair> Scene::detect_collisions_omp() {
 
     // 5. Broad phase: BVH traversal
     t.start();
-    bvh_traverse_omp(last_bvh, _broad_pairs);
+    bvh_traverse_omp(last_bvh, _broad_pairs, scenario == Scenario::TWO_CLUSTER);
     stage_times.traverse_ms = t.stop();
 
     // 6. Narrow phase: GJK on each candidate pair
@@ -102,22 +213,43 @@ std::vector<CollisionPair> Scene::detect_collisions_omp() {
     {
         int np = static_cast<int>(_broad_pairs.size());
         int num_threads = omp_get_max_threads();
+        int balance_level = scene_load_balance_level();
         std::vector<std::vector<CollisionPair>> thread_confirmed(num_threads);
+        std::vector<GjkThreadStats> gjk_stats(balance_level ? num_threads : 0);
         #pragma omp parallel
         {
             int tid = omp_get_thread_num();
-            #pragma omp for schedule(dynamic, 64)
+            double t0 = balance_level ? omp_get_wtime() : 0.0;
+            #pragma omp for schedule(dynamic, 64) nowait
             for (int i = 0; i < np; i++) {
                 const auto& p = _broad_pairs[i];
-                if (gjk_intersect(bodies[p.a], bodies[p.b])) {
+                if (balance_level) gjk_stats[tid].calls++;
+                if (gjk_intersect_soa(_shape_types[p.a], _positions[p.a],
+                                      _shape_types[p.b], _positions[p.b])) {
                     thread_confirmed[tid].push_back(p);
+                    if (balance_level) gjk_stats[tid].confirmed++;
                 }
             }
+            if (balance_level) gjk_stats[tid].work_ms = (omp_get_wtime() - t0) * 1000.0;
+            #pragma omp barrier
         }
         for (int ti = 0; ti < num_threads; ti++) {
             _confirmed.insert(_confirmed.end(),
                               thread_confirmed[ti].begin(),
                               thread_confirmed[ti].end());
+        }
+        if (balance_level) {
+            std::printf("    [load-balance] GJK candidate_pairs=%d confirmed=%zu\n",
+                        np, _confirmed.size());
+            print_gjk_balance(gjk_stats);
+            if (balance_level >= 2) {
+                std::printf("    [load-balance] GJK per-thread: tid calls confirmed work_ms\n");
+                for (int ti = 0; ti < num_threads; ti++) {
+                    std::printf("    [load-balance] GJK tid=%d calls=%lld confirmed=%lld work_ms=%.3f\n",
+                                ti, gjk_stats[ti].calls, gjk_stats[ti].confirmed,
+                                gjk_stats[ti].work_ms);
+                }
+            }
         }
     }
     stage_times.gjk_ms = t.stop();
