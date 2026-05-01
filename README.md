@@ -1,15 +1,15 @@
 # Parallel-DCD-Engine
 
-**Authors:** Bill Wu, Shu Chen Lin
+**Authors:** Bill Wu, ShuChen Lin
 **Course:** CMU 15-418 / 15-618 Spring 2026
 
 A high-performance parallel **Discrete Collision Detection** engine for large 3D scenes,
 implemented from scratch in C++ with both **OpenMP** (multi-core CPU) and **CUDA** (GPU)
 backends, plus a real-time **OpenGL** visualizer.
 
-- 🌐 **Website:** https://shuchenlin.github.io/Parallel-DCD-Engine/
-- 📄 **Final Report:** https://shuchenlin.github.io/Parallel-DCD-Engine/#/final
-- 💻 **Repository:** https://github.com/ShuChenLin/Parallel-DCD-Engine
+- **Website:** https://shuchenlin.github.io/Parallel-DCD-Engine/
+- **Final Report:** https://shuchenlin.github.io/Parallel-DCD-Engine/#/final
+- **Repository:** https://github.com/ShuChenLin/Parallel-DCD-Engine
 
 ## Overview
 
